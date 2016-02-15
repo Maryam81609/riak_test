@@ -209,7 +209,7 @@ confirm_nx_delete({Mod, C}) ->
                Res);
         rhc_ts ->
             ?assertEqual(
-               {error, not_found},
+               {error, notfound},
                Res)
     end,
     ok.
@@ -248,13 +248,13 @@ confirm_get({Mod, C}, Record = [Pooter1, Pooter2, Timepoint | _]) ->
 confirm_nx_get({Mod, C}) ->
     Res = Mod:get(C, ?BUCKET, ?BADKEY, []),
     io:format("Not got a nonexistent single record: ~p\n", [Res]),
-    ?assertMatch({ok, {[], []}}, Res),
+    ?assertMatch({error, notfound}, Res),
     ok.
 
 confirm_nx_list_keys({_Mod, C}) ->
-    {Status, Reason} = ts_list_keys(C, <<"no-bucket-like-this">>),
+    {_Status, Reason} = Res = ts_list_keys(C, <<"no-bucket-like-this">>),
     io:format("Nothing listed from a non-existent bucket: ~p\n", [Reason]),
-    ?assertMatch(error, Status),
+    ?assertMatch({error, notfound}, Res),
     ok.
 
 confirm_list_keys(C, N) ->
@@ -262,7 +262,7 @@ confirm_list_keys(C, N) ->
 confirm_list_keys(_C, _N, 0) ->
     io:format("stream_list_keys is lying\n", []),
     fail;
-confirm_list_keys({_Mod, C}, N, TriesToGo) ->
+confirm_list_keys({_Mod, C} = CMod, N, TriesToGo) ->
     case ts_list_keys(C, ?BUCKET) of
         {ok, Keys} ->
             case length(Keys) of
@@ -270,7 +270,7 @@ confirm_list_keys({_Mod, C}, N, TriesToGo) ->
                     {ok, Keys};
                 _NotN ->
                     io:format("Listed ~b (expected ~b) keys streaming. Retrying.\n", [length(Keys), N]),
-                    confirm_list_keys(C, N, TriesToGo - 1)
+                    confirm_list_keys(CMod, N, TriesToGo - 1)
             end;
         {error, Reason} ->
             io:format("streaming keys error: ~p\n", [Reason]),
@@ -297,7 +297,7 @@ ts_list_keys(C, Table) when is_pid(C) ->
     list_keys(C, Table);
 ts_list_keys(C, Table) ->
     %% .. whereas rhc_ts does the slurping for us
-    rhc_ts:list_keys(C, {Table, Table}).
+    rhc_ts:list_keys(C, Table).
 
 list_keys(C, Table) ->
     {ok, ReqId1} = riakc_ts:stream_list_keys(C, Table, []),
@@ -308,6 +308,8 @@ receive_keys(ReqId, Acc) ->
         {ReqId, {keys, Keys}} ->
             io:format("received batch of ~b\n", [length(Keys)]),
             receive_keys(ReqId, lists:append(Keys, Acc));
+        {ReqId, {error, {1007, _BucketNotExistsMessage}}} ->
+            {error, notfound};
         {ReqId, {error, Reason}} ->
             io:format("list_keys(~p) at ~b got an error: ~p\n", [ReqId, length(Acc), Reason]),
             {error, Reason};
