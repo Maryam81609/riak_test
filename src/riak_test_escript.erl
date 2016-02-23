@@ -176,34 +176,34 @@ main(Args) ->
     net_kernel:start([ENode]),
     erlang:set_cookie(node(), Cookie),
 
+    %% ==================== Commander Instrumentation ====================
+    %% Start Commander
+    %% ===================================================================
     {ok, _Pid} = commander:start_link(),
     lager:info("Cammander started on: ~p", [node()]),
     true = lists:member(commander, erlang:registered()),
-    %Res = cammander:call_comm(),
-    Res = gen_server:call(commander, call_comm),
-    lager:info("Result of call_comm is: ~p", [Res]),
-
+    %% ==================== End of Instrumentation Region ====================
 
     TestResults = lists:filter(fun results_filter/1, [ run_test(Test, Outdir, TestMetaData, Report, HarnessArgs, length(Tests)) || {Test, TestMetaData} <- Tests]),
     [rt_cover:maybe_import_coverage(proplists:get_value(coverdata, R)) || R <- TestResults],
     Coverage = rt_cover:maybe_write_coverage(all, CoverDir),
 
+    %% ==================== Commander Instrumentation ====================
+    %% Start Commander
+    %% ===================================================================
     case lists:member(commander, erlang:registered()) of
         true ->
-            Res2 = gen_server:call(commander, {do_record, {txn}}),
-            lager:info("Result of do_record: ~p", [Res2]);
+            lager:info("Result of do_record: ~p", [true]),
+            lager:info("Commander module_info:~n~p", [commander:module_info()]);
             %Res3 = commander:test(),
             %lager:info("Result of test: ~p", [Res3]);
         _ ->
             lager:info("Result of test: false")
     end,
 
-    Res4 = test:test_call(),
-    lager:info("Result of test_call is: ~p", [Res4]),
-
-    gen_server:cast(commander, stop),
+    commander:stop(),%%gen_server:cast(commander, stop),
     lager:info("Commander stoped on: ~p", [node()]),
-    %%commander:stop(),
+    %% ==================== End of Instrumentation Region ====================
 
     Teardown = not proplists:get_value(keep, ParsedArgs, false),
     maybe_teardown(Teardown, TestResults, Coverage, Verbose),

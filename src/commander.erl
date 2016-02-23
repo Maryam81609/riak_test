@@ -2,13 +2,12 @@
 
 -behaviour(gen_server).
 
-%-include_lib("eunit/include/eunit.hrl").
+-include("commander.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %% Public API
--export([test/0,
-        start_link/0,
+-export([start_link/0,
         stop/0,
-        call_comm/0,
         do_record/1,
         %% callbacks
         init/1,
@@ -20,24 +19,15 @@
 		]).
 
 -define(SERVER, ?MODULE).
--record(state, {}).
 
 %%%====================================
 %%% Public API
 %%%====================================
-test() ->
-    returned.
-
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-do_record(DS_Txn) ->
-    gen_server:call(?SERVER, {do_record, {DS_Txn}}).
-
-call_comm() ->
-	Res = gen_server:call(?SERVER, call_comm),
-	io:format("commander server was called from riak_test, and the result is: ~p", [Res]),
-	Res.
+do_record(Data) ->
+    gen_server:call(?SERVER, {do_record, {Data}}).
 
 stop() ->
     gen_server:cast(?SERVER, stop).
@@ -46,25 +36,15 @@ stop() ->
 %%% Callbacks
 %%%====================================
 init([]) ->
-    io:format("commander server started on node: ~p", [node()]),
-    {ok, #state{}, 0}.
+    lager:info("commander server started on node: ~p", [node()]),
+    ExecId = 1,
+    NewState = comm_recorder:init_record(ExecId, #comm_state{}),
+    lager:info("Recording initiated....~n~p~n", [NewState]),
+    {ok, NewState}.
 
-log_fn() ->
- 	{ok, [[HomeDir]]} = init:get_argument(home),
- 	LogPath = HomeDir ++ "/commander/log/",
- 	filelib:ensure_dir(LogPath),
- 	LogPath ++ "comm_log".
-
-handle_call({do_record, {_Txn}}, From, State) ->
-    %% TODO: call appropriate functions from recorder module
-    case file:open(log_fn(), [write]) of
-    	{ok, IoDevice} ->
-    		file:truncate(IoDevice),
-    		file:write(IoDevice, io_lib:format("~p -----> ~s~n", [From, "HHHHHHHHAAAAAAAAAAA.........."])),
-            {reply, {recorded, IoDevice}, State};
-    	{error, Reason} ->
-            {reply, {error, Reason}, State}
-    end;
+handle_call({do_record, {Data}}, _From, State) ->
+    NewState = comm_recorder:do_record(Data, State),
+    {reply, ok, NewState};
 
 handle_call(call_comm, _From, State) ->
     {reply, comm_called, State}.
