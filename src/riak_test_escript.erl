@@ -189,19 +189,16 @@ main(Args) ->
     Coverage = rt_cover:maybe_write_coverage(all, CoverDir),
 
     %% ==================== Commander Instrumentation ====================
-    %% Start Commander
+    %% Stop Commander
     %% ===================================================================
     case lists:member(commander, erlang:registered()) of
         true ->
-            lager:info("Result of do_record: ~p", [true]),
             lager:info("Commander module_info:~n~p", [commander:module_info()]);
-            %Res3 = commander:test(),
-            %lager:info("Result of test: ~p", [Res3]);
         _ ->
-            lager:info("Result of test: false")
+            lager:info("Commander process does not exist.")
     end,
 
-    commander:stop(),%%gen_server:cast(commander, stop),
+    commander:stop(),
     lager:info("Commander stoped on: ~p", [node()]),
     %% ==================== End of Instrumentation Region ====================
 

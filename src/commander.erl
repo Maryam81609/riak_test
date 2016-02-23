@@ -44,10 +44,7 @@ init([]) ->
 
 handle_call({do_record, {Data}}, _From, State) ->
     NewState = comm_recorder:do_record(Data, State),
-    {reply, ok, NewState};
-
-handle_call(call_comm, _From, State) ->
-    {reply, comm_called, State}.
+    {reply, ok, NewState}.
 
 handle_cast(stop, State) ->
     {stop, normal, State}.
