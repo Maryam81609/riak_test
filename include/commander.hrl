@@ -24,8 +24,10 @@
 
 -type downstream_event() :: #downstream_event{}.
 
+-type event() :: upstream_event | downstream_event.
+
 -record(execution, {id :: non_neg_integer(),
-                    trace :: [term()]}). %% Each execution trace is a list of Interdc_txn() or txn()
+                    trace :: [event()]}).
 -type execution() :: #execution{}.
 -type delay_seq() :: [non_neg_integer()].
 -type phase() :: recording | replaying.

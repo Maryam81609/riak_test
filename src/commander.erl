@@ -91,10 +91,6 @@ handle_call({get_upstream_event_data, {Data}}, _From, State) ->
     NewUpstreamEvent = #upstream_event{event_no = EvNo, event_data = Data, event_txns = []},
     NewUpstreamEvents = State#comm_state.upstream_events ++ [NewUpstreamEvent],
     NewState = State#comm_state{upstream_events = NewUpstreamEvents},
-    {reply, ok, NewState};
-
-handle_call({do_record, {Data}}, _From, State) ->
-    NewState = comm_recorder:do_record(Data, State),
     {reply, ok, NewState}.
 
 handle_cast(stop, State) ->

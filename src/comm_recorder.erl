@@ -16,21 +16,21 @@ init_record(ExecId, State) ->
         ExecId == 1 ->
             NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=recording, exec_counter = ExecId, upstream_events = []};
         true ->
-            NewState = State#comm_state{curr_exec = CurrExec}
+            NewState = State
     end,
     write_to_file(FullName, io_lib:format("~b~n", [ExecId]), write),
     NewState.
 
-do_record(Data, State) ->
+do_record(Event, State) ->
     ExecId = State#comm_state.exec_counter,
     FileName = comm_utilities:get_exec_name(ExecId),
     FullName = comm_utilities:get_full_name(FileName, recording),
-    ok = write_to_file(FullName, io_lib:format("~w~n", [Data]), append),
+    ok = write_to_file(FullName, io_lib:format("~w~n", [Event]), append),
 
     %% Update common parts of the commander state for both upstream and downstream events
     CurrExec = State#comm_state.curr_exec,
     CurrExecTrace = CurrExec#execution.trace,
-    NewCurrExecTrace = CurrExecTrace ++ [Data],
+    NewCurrExecTrace = CurrExecTrace ++ [Event],
     NewCurrExec = CurrExec#execution{trace = NewCurrExecTrace},
     if
         ExecId == 1 ->
