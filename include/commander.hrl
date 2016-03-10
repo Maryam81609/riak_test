@@ -11,14 +11,24 @@
 -type delay_seq() :: [non_neg_integer()].
 -type phase() :: recording | replaying.
 
--record(comm_state, {initial_exec :: execution(), %%base_execs :: [execution()], %%curr_base_exec_idx :: non_neg_integer(), %% Index is 0 in the initial state
+-record(exec_state, {test_module :: atom(),
+                     exec_events :: list(pos_integer())}).
+-type exec_state() :: #exec_state{}.
+
+-record(upstream_event, {event_no :: pos_integer(),
+                        event_dc :: dcid(),
+                        event_commit_time :: non_neg_integer(),
+                        event_snapshot_time :: dict(),
+                        event_data :: [term()],
+                        event_txns :: [txid()]}).
+
+-type upstream_event() :: #upstream_event{}.
+
+-record(comm_state, {initial_exec :: execution(),
                     curr_exec :: execution(),
                     curr_delay_seq :: delay_seq(),
                     replay_history :: [execution()], %%[history_record()],
                     phase :: phase(),
-                    exec_counter :: non_neg_integer()}).
-
-%%-record(history_record, {exec_id :: non_neg_integer(),
-  %%                       replayed_delays :: [delay_seq()]}).
-
-%%-type history_record() :: #history_record{}.
+                    exec_counter :: non_neg_integer(),
+                    curr_exec_state :: exec_state(),
+                    upstream_events :: [upstream_event]}).

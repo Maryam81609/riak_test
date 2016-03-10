@@ -191,13 +191,6 @@ main(Args) ->
     %% ==================== Commander Instrumentation ====================
     %% Stop Commander
     %% ===================================================================
-    case lists:member(commander, erlang:registered()) of
-        true ->
-            lager:info("Commander module_info:~n~p", [commander:module_info()]);
-        _ ->
-            lager:info("Commander process does not exist.")
-    end,
-
     commander:stop(),
     lager:info("Commander stoped on: ~p", [node()]),
     %% ==================== End of Instrumentation Region ====================

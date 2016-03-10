@@ -1,5 +1,4 @@
 -module(comm_utilities).
--include("commander.hrl").
 
 -compile(export_all).
 

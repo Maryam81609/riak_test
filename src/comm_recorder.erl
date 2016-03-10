@@ -5,13 +5,16 @@
 
 -export([do_record/2, init_record/2]).
 
+%%%====================================
+%%% Public API
+%%%====================================
 init_record(ExecId, State) ->
     FileName = comm_utilities:get_exec_name(ExecId),
     FullName = comm_utilities:get_full_name(FileName, recording),
     CurrExec = #execution{id=ExecId, trace=[]},
     if
         ExecId == 1 ->
-            NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=recording, exec_counter = ExecId};
+            NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=recording, exec_counter = ExecId, upstream_events = []};
         true ->
             NewState = State#comm_state{curr_exec = CurrExec}
     end,
@@ -22,9 +25,9 @@ do_record(Data, State) ->
     ExecId = State#comm_state.exec_counter,
     FileName = comm_utilities:get_exec_name(ExecId),
     FullName = comm_utilities:get_full_name(FileName, recording),
-    write_to_file(FullName, io_lib:format("~w~n", [Data]), append),
+    ok = write_to_file(FullName, io_lib:format("~w~n", [Data]), append),
 
-    %% Update commander state  initial_exec={}, curr_exec, curr_delay_seq=[], replay_history=[], phase=recording, exec_counter = ExecId
+    %% Update common parts of the commander state for both upstream and downstream events
     CurrExec = State#comm_state.curr_exec,
     CurrExecTrace = CurrExec#execution.trace,
     NewCurrExecTrace = CurrExecTrace ++ [Data],
@@ -35,9 +38,11 @@ do_record(Data, State) ->
         true ->
             NewState = State#comm_state{curr_exec = NewCurrExec}
     end,
-    lager:info("New State exes length after a record: ~n~b~n", [length(NewCurrExecTrace)]),
     NewState.
 
+%%%====================================
+%%% Internal functions
+%%%====================================
 write_to_file(FullName, Data, Mode) ->
     case file:read_file_info(FullName) of
             {ok, _FileInfo} ->
