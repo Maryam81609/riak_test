@@ -8,9 +8,9 @@
 %% Public API
 -export([start_link/0,
         stop/0,
-        do_record/1,
         update_upstream_event_data/1,
         get_upstream_event_data/1,
+        get_downstream_event_data/1,
         %% callbacks
         init/1,
 		handle_cast/2,
@@ -28,8 +28,8 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-do_record(Data) ->
-    gen_server:call(?SERVER, {do_record, {Data}}).
+get_downstream_event_data(Data) ->
+    gen_server:call(?SERVER, {get_downstream_event_data, {Data}}).
 
 get_upstream_event_data(Data) ->
     gen_server:call(?SERVER, {get_upstream_event_data, {Data}}).
@@ -49,6 +49,26 @@ init([]) ->
     NewState = comm_recorder:init_record(ExecId, #comm_state{}),
     lager:info("Recording initiated....~n~p~n", [NewState]),
     {ok, NewState}.
+
+handle_call({get_downstream_event_data, {Data}}, _From, State) ->
+    {EventDc, EventNode, EventTxn} = Data,
+
+    EventOriginalDc = EventTxn#interdc_txn.dcid,
+    EventCommitTime = EventTxn#interdc_txn.timestamp,
+    EventSnapshot = EventTxn#interdc_txn.snapshot,
+    EventData = [EventTxn],
+
+    Ops = EventTxn#interdc_txn.operations,
+    Commit_op = lists:last(Ops),
+    LogRecord = Commit_op#operation.payload,
+    TxnId = LogRecord#log_record.tx_id,
+
+    EventTxns = [TxnId],
+
+    NewDownstreamEvent = #downstream_event{event_dc = EventDc, event_node = EventNode, event_original_dc = EventOriginalDc, event_commit_time = EventCommitTime, event_snapshot_time = EventSnapshot, event_data = EventData, event_txns = EventTxns},
+
+    NewState1 = comm_recorder:do_record(NewDownstreamEvent, State),
+    {reply, ok, NewState1};
 
 %% {TxId, DCID, CommitTime, SnapshotTime} = Data
 handle_call({update_upstream_event_data, {Data}}, _From, State) ->

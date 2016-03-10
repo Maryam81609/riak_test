@@ -5,6 +5,25 @@
 
 -type dc() :: [node()].
 
+-record(upstream_event, {event_no :: pos_integer(),
+                        event_dc :: dcid(),
+                        event_commit_time :: non_neg_integer(),
+                        event_snapshot_time :: dict(),
+                        event_data :: [term()],
+                        event_txns :: [txid()]}).
+
+-type upstream_event() :: #upstream_event{}.
+
+-record(downstream_event, {event_dc :: dcid(),
+                           event_node :: node(),
+                           event_original_dc :: dcid(),
+                           event_commit_time :: non_neg_integer(),
+                           event_snapshot_time :: dict(),
+                           event_data :: [term()],
+                           event_txns :: [txid()]}).
+
+-type downstream_event() :: #downstream_event{}.
+
 -record(execution, {id :: non_neg_integer(),
                     trace :: [term()]}). %% Each execution trace is a list of Interdc_txn() or txn()
 -type execution() :: #execution{}.
@@ -14,15 +33,6 @@
 -record(exec_state, {test_module :: atom(),
                      exec_events :: list(pos_integer())}).
 -type exec_state() :: #exec_state{}.
-
--record(upstream_event, {event_no :: pos_integer(),
-                        event_dc :: dcid(),
-                        event_commit_time :: non_neg_integer(),
-                        event_snapshot_time :: dict(),
-                        event_data :: [term()],
-                        event_txns :: [txid()]}).
-
--type upstream_event() :: #upstream_event{}.
 
 -record(comm_state, {initial_exec :: execution(),
                     curr_exec :: execution(),
