@@ -2,14 +2,16 @@
 -include("inter_dc_repl.hrl").
 -define(DEV(N), list_to_atom(lists:concat(["dev", N, "@127.0.0.1"]))).
 -define(NODES_PATH, (comm_config:fetch(cluster_path))).
+-define(TEST_NODE, 'riak_test@127.0.0.1').
 
 -type dc() :: [node()].
 
 -record(upstream_event, {event_no :: pos_integer(),
+                        event_data :: term(),
                         event_dc :: dcid(),
+                        %% TODO: merge following fields into one field: dict({txid(), {txn_commit_time :: non_neg_integer(), txn_snapshot_time :: dict()}})
                         event_commit_time :: non_neg_integer(),
                         event_snapshot_time :: dict(),
-                        event_data :: [term()],
                         event_txns :: [txid()]}).
 
 -type upstream_event() :: #upstream_event{}.
@@ -19,8 +21,8 @@
                            event_original_dc :: dcid(),
                            event_commit_time :: non_neg_integer(),
                            event_snapshot_time :: dict(),
-                           event_data :: [term()],
-                           event_txns :: [txid()]}).
+                           event_data :: [term()], %% => event_txns :: [inetrdc_txn()]; event_txns list contains partial transactions
+                           event_txns :: [txid()]}). %% => event_txid :: txid()
 
 -type downstream_event() :: #downstream_event{}.
 
@@ -30,17 +32,23 @@
                     trace :: [event()]}).
 -type execution() :: #execution{}.
 -type delay_seq() :: [non_neg_integer()].
--type phase() :: recording | replaying.
+-type phase() :: record | replay.
 
 -record(exec_state, {test_module :: atom(),
                      exec_events :: list(pos_integer())}).
 -type exec_state() :: #exec_state{}.
 
--record(comm_state, {initial_exec :: execution(),
-                    curr_exec :: execution(),
-                    curr_delay_seq :: delay_seq(),
-                    replay_history :: [execution()], %%[history_record()],
+-record(comm_state, {%%% Common fields
+                    initial_exec :: execution(),
+                    curr_exec :: execution(), %% Shows the scheduled execution is getting replayed
                     phase :: phase(),
-                    exec_counter :: non_neg_integer(),
-                    curr_exec_state :: exec_state(),
-                    upstream_events :: [upstream_event]}).
+                    %%% Used by Replayer
+                    recent_tx :: txid(),
+                    txn_map :: dict(), %% {key:OriginalTxId{snapshot_time, server_pid}, val:NewInterDCTxn}
+                    clusters :: [dc()],
+                    replay_history :: [execution()], %% Consider keeping only the list of event indices in the original exec
+                    exec_counter :: non_neg_integer(), %% Name the recorded files
+                    %%% Used by Recorder to record the initial execution
+                    upstream_events :: [upstream_event],
+                    %%% Used by Scheduler
+                    curr_delay_seq :: delay_seq()}).

@@ -16,10 +16,10 @@ get_exec_name(ExecId) ->
     FileName = io_lib:format("exec_~b",[ExecId]),
     FileName.
 
-get_full_name(Name, OpType) ->
+get_full_name(Name, Phase) ->
     RootDir = get_home_dir() ++ "/commander",
-    Dir = case OpType of
-            recording ->
+    Dir = case Phase of
+            record ->
                 RootDir ++ "/history/";
             _logging ->
                 RootDir ++ "/log/"

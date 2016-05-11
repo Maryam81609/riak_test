@@ -9,22 +9,24 @@
 %%% Public API
 %%%====================================
 init_record(ExecId, State) ->
-    FileName = comm_utilities:get_exec_name(ExecId),
-    FullName = comm_utilities:get_full_name(FileName, recording),
     CurrExec = #execution{id=ExecId, trace=[]},
     if
         ExecId == 1 ->
-            NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=recording, exec_counter = ExecId, upstream_events = []};
+            NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=record, exec_counter = ExecId, upstream_events = [], txn_map = dict:new()};
         true ->
             NewState = State
     end,
+    FileName = comm_utilities:get_exec_name(ExecId),
+    Phase = NewState#comm_state.phase,
+    FullName = comm_utilities:get_full_name(FileName, Phase),
     write_to_file(FullName, io_lib:format("~b~n", [ExecId]), write),
     NewState.
 
 do_record(Event, State) ->
     ExecId = State#comm_state.exec_counter,
     FileName = comm_utilities:get_exec_name(ExecId),
-    FullName = comm_utilities:get_full_name(FileName, recording),
+    Phase = State#comm_state.phase,
+    FullName = comm_utilities:get_full_name(FileName, Phase),
     ok = write_to_file(FullName, io_lib:format("~w~n", [Event]), append),
 
     %% Update common parts of the commander state for both upstream and downstream events
