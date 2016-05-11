@@ -39,6 +39,7 @@
 -type exec_state() :: #exec_state{}.
 
 -record(comm_state, {%%% Common fields
+                    txns_data :: dict(), %%txId -> [{local, localData}, {remote,list(partialTxns)}]
                     initial_exec :: execution(),
                     curr_exec :: execution(), %% Shows the scheduled execution is getting replayed
                     phase :: phase(),
