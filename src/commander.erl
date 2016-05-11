@@ -11,13 +11,15 @@
         update_upstream_event_data/1,
         get_upstream_event_data/1,
         get_downstream_event_data/1,
+        phase/0,
+        get_clusters/1,
         %% callbacks
         init/1,
-		handle_cast/2,
-		handle_call/3,
-		handle_info/2,
-		code_change/3,
-		terminate/2
+        handle_cast/2,
+        handle_call/3,
+        handle_info/2,
+        code_change/3,
+        terminate/2
 		]).
 
 -define(SERVER, ?MODULE).
@@ -28,6 +30,9 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+get_clusters(Clusters) ->
+    gen_server:call(?SERVER, {get_clusters, Clusters}).
+
 get_downstream_event_data(Data) ->
     gen_server:call(?SERVER, {get_downstream_event_data, {Data}}).
 
@@ -36,6 +41,9 @@ get_upstream_event_data(Data) ->
 
 update_upstream_event_data(Data) ->
     gen_server:call(?SERVER, {update_upstream_event_data, {Data}}).
+
+phase() ->
+    gen_server:call(?SERVER, phase).
 
 stop() ->
     gen_server:cast(?SERVER, stop).
@@ -47,8 +55,17 @@ init([]) ->
     lager:info("commander server started on node: ~p", [node()]),
     ExecId = 1,
     NewState = comm_recorder:init_record(ExecId, #comm_state{}),
-    lager:info("Recording initiated....~n~p~n", [NewState]),
+    io:format("Recording initiated....~n~p~n", [NewState]),
     {ok, NewState}.
+
+handle_call({get_clusters, Clusters}, _From, State) ->
+    %%Only can get here in get_clusters from the initial run when setting the environment up
+    NewState = State#comm_state{clusters = Clusters},
+    {reply, ok, NewState};
+
+handle_call(phase, _From, State) ->
+    Phase = State#comm_state.phase,
+    {reply, Phase, State};
 
 handle_call({get_downstream_event_data, {Data}}, _From, State) ->
     {EventDc, EventNode, EventTxn} = Data,
@@ -73,18 +90,21 @@ handle_call({get_downstream_event_data, {Data}}, _From, State) ->
 %% {TxId, DCID, CommitTime, SnapshotTime} = Data
 handle_call({update_upstream_event_data, {Data}}, _From, State) ->
     %% TODO: Handle the case if the txn is aborted or there is an error (Data =/= {txnid, _})
+    UpEvents = State#comm_state.upstream_events,
+    case UpEvents of
+        [CurrentUpstreamEvent | Tail] ->
+            {TxId, DCID, CommitTime, SnapshotTime, _Partition} = Data,
+            NewEventTxns = CurrentUpstreamEvent#upstream_event.event_txns ++ [TxId],
+            NewUpstreamEvent = CurrentUpstreamEvent#upstream_event{event_dc = DCID, event_commit_time = CommitTime, event_snapshot_time = SnapshotTime, event_txns = NewEventTxns},
 
-    [CurrentUpstreamEvent | Tail] = State#comm_state.upstream_events,
+            NewState1 = comm_recorder:do_record(NewUpstreamEvent, State),
 
-    {TxId, DCID, CommitTime, SnapshotTime} = Data,
-    NewEventTxns = CurrentUpstreamEvent#upstream_event.event_txns ++ [TxId],
-    NewUpstreamEvent = CurrentUpstreamEvent#upstream_event{event_dc = DCID, event_commit_time = CommitTime, event_snapshot_time = SnapshotTime, event_txns = NewEventTxns},
-
-    NewState1 = comm_recorder:do_record(NewUpstreamEvent, State),
-
-    NewUpstreamEvents = Tail,
-    NewState = NewState1#comm_state{upstream_events = NewUpstreamEvents},
-    {reply, ok, NewState};
+            NewUpstreamEvents = Tail,
+            NewState = NewState1#comm_state{upstream_events = NewUpstreamEvents},
+            {reply, ok, NewState};
+        [] ->
+            {reply, ok, State}
+    end;
 
 handle_call({get_upstream_event_data, {Data}}, _From, State) ->
     {_M, [EvNo | _ ]} = Data,
