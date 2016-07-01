@@ -26,6 +26,21 @@
 
 -type downstream_event() :: #downstream_event{}.
 
+-record(local_event, {
+  event_no :: pos_integer(),
+  event_dc :: dcid(),
+  event_commit_time :: non_neg_integer(),
+  event_snapshot_time :: dict(),
+  event_txns :: [txid()]}).
+
+-record(remote_event, {
+  event_dc :: dcid(),
+  event_node :: node(),
+  event_original_dc :: dcid(),
+  event_commit_time :: non_neg_integer(),
+  event_snapshot_time :: dict(),
+  event_txns :: [txid()]}).
+
 -type event() :: upstream_event | downstream_event.
 
 -record(execution, {id :: non_neg_integer(),
@@ -45,7 +60,7 @@
                     phase :: phase(),
                     %%% Used by Replayer
                     recent_tx :: txid(),
-                    txn_map :: dict(), %% {key:OriginalTxId{snapshot_time, server_pid}, val:NewInterDCTxn}
+                    %txn_map :: dict(), %% {key:OriginalTxId{snapshot_time, server_pid}, val:NewInterDCTxn}
                     clusters :: [dc()],
                     replay_history :: [execution()], %% Consider keeping only the list of event indices in the original exec
                     exec_counter :: non_neg_integer(), %% Name the recorded files
@@ -53,3 +68,27 @@
                     upstream_events :: [upstream_event],
                     %%% Used by Scheduler
                     curr_delay_seq :: delay_seq()}).
+
+-record(replay_state, {
+  txns_data :: dict(), %%txId -> [{local, localData}, {remote,list(partialTxns)}]
+  txn_map :: dict(),
+  sch_count :: pos_integer(),
+  clusters :: list(),
+  dcs :: list(dc())
+  %%history :: list(event())
+}).
+
+-record(scheduler_state, {
+  delayed_count :: non_neg_integer(),
+  delay_bound :: non_neg_integer(),
+  event_count :: pos_integer(),
+  curr_delay_seq :: delay_seq(),
+  curr_sch :: list(term()),
+  dependency :: dict(),
+  delayed :: list(term()),
+  orig_sch :: list(event()),
+  orig_sch_sym :: list(term()),
+  curr_event_index :: non_neg_integer(),
+  logical_ss :: dict(),
+  dcs :: list()
+}).
