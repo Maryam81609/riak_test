@@ -189,10 +189,21 @@ main(Args) ->
     Coverage = rt_cover:maybe_write_coverage(all, CoverDir),
 
     %% ==================== Commander Instrumentation ====================
+    %% Start replayer
+    %% ===================================================================
+    %%% TODO: Allow programer to specify delay bound
+    commander:check(1),
+
+    %% ==================== Commander Instrumentation ====================
     %% Stop Commander
     %% ===================================================================
-    commander:stop(),
-    lager:info("Commander stoped on: ~p", [node()]),
+    receive
+      stop ->
+        lager:info("~p schedules replyed successfully.", [commander:passed_test_count()]),
+        commander:stop(),
+        lager:info("Commander stoped on: ~p", [node()])
+    end,
+
     %% ==================== End of Instrumentation Region ====================
 
     Teardown = not proplists:get_value(keep, ParsedArgs, false),

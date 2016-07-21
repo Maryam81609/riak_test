@@ -12,8 +12,16 @@
         get_upstream_event_data/1,
         get_downstream_event_data/1,
         update_transactions_data/2,
+        get_scheduling_data/0,
         phase/0,
         get_clusters/1,
+        check/1,
+        run_next_test1/0,
+        test_initialized/0,
+        update_replay_txns_data/3,
+        acknowledge_delivery/1,
+        test_passed/0,
+        passed_test_count/0,
         %% callbacks
         init/1,
         handle_cast/2,
@@ -46,8 +54,32 @@ update_upstream_event_data(Data) ->
 update_transactions_data(TxId, InterDcTxn) ->
     gen_server:call(?SERVER, {update_transactions_data, {TxId, InterDcTxn}}).
 
+get_scheduling_data() ->
+    gen_server:call(?SERVER, get_scheduling_data).
+
 phase() ->
     gen_server:call(?SERVER, phase).
+
+test_passed() ->
+  gen_server:call(?SERVER, test_passed).
+
+passed_test_count() ->
+  gen_server:call(?SERVER, passed_test_count).
+
+check(DelayBound) ->
+  gen_server:cast(?SERVER, {check, {DelayBound}}).
+
+run_next_test1() ->
+  gen_server:cast(?SERVER, run_next_test1).
+
+test_initialized() ->
+  gen_server:cast(?SERVER, test_initialized).
+
+update_replay_txns_data(LocalTxnData, InterDCTxn, TxId) ->
+  gen_server:cast(?SERVER, {update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}).
+
+acknowledge_delivery(TxId) ->
+  gen_server:cast(?SERVER, {acknowledge_delivery, {TxId}}).
 
 stop() ->
     gen_server:cast(?SERVER, stop).
@@ -56,14 +88,28 @@ stop() ->
 %%% Callbacks
 %%%====================================
 init([]) ->
-    lager:info("commander server started on node: ~p", [node()]),
+    lager:info("Commander started on: ~p", [node()]),
     ExecId = 1,
     NewState = comm_recorder:init_record(ExecId, #comm_state{}),
-    io:format("Recording initiated....~n~p~n", [NewState]),
     {ok, NewState}.
 
+handle_call(passed_test_count, _From, State) ->
+  PassedTestCount = comm_scheduler:passed_schedule_count(),
+  {reply, PassedTestCount, State};
+
+handle_call(test_passed, _From, State) ->
+  {reply, ok, State#comm_state{phase=init_test}};
+
+handle_call(get_scheduling_data, _From, State) ->
+  {execution, 1, OrigSch} = State#comm_state.initial_exec,
+  %%% TODO: DCs list must be generated dynamically
+  DCs = [{'dev1@127.0.0.1',{1454,673786,555079}}, {'dev2@127.0.0.1',{1454,674114,902272}}, {'dev3@127.0.0.1',{1454,674115,135857}}],
+  OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
+  Reply = {OrigSymSch, DCs},
+  {reply, Reply, State};
+
 handle_call({get_clusters, Clusters}, _From, State) ->
-    %%Only can get here in get_clusters from the initial run when setting the environment up
+    %%Only can get here in the initial run while setting the environment up
     NewState = State#comm_state{clusters = Clusters},
     {reply, ok, NewState};
 
@@ -103,10 +149,9 @@ handle_call({update_upstream_event_data, {Data}}, _From, State) ->
 
             NewState1 = comm_recorder:do_record(NewUpstreamEvent, State),
 
-            NewTxnsData = dict:store(TxId, [{local, CurrentUpstreamEvent#upstream_event.event_data}, {remote, []}], NewState1#comm_state.txns_data),
+            NewTxnsData = dict:store(TxId, [{local, NewUpstreamEvent#upstream_event.event_data}, {remote, []}], NewState1#comm_state.txns_data),
 
             NewUpstreamEvents = Tail,
-            %io:format("~n New transactions data:~n ~p~n", [dict:to_list(NewTxnsData)]),
             NewState1#comm_state{upstream_events = NewUpstreamEvents, txns_data = NewTxnsData};
         [] ->
             State
@@ -122,8 +167,7 @@ handle_call({get_upstream_event_data, {Data}}, _From, State) ->
 
 handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
     NewState = case dict:find(TxId, State#comm_state.txns_data) of
-                    {ok, TxData} ->
-                        [LocalData, {remote, PartTxns}] = TxData,
+                    {ok, TxData} ->[LocalData, {remote, PartTxns}] = TxData,
                         NewPartTxns = PartTxns ++ [InterDcTxn],
                         NewTxData = [LocalData, {remote, NewPartTxns}],
                         NewTxnsData2 = dict:store(TxId, NewTxData, State#comm_state.txns_data),
@@ -132,8 +176,38 @@ handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
                         io:format("~nTXN:~p not found in txnsData!~n", [TxId]),
                         State
                 end,
-    %io:format("~nTxns data: ~n~p~n", [dict:to_list(NewState#comm_state.txns_data)]),
     {reply, ok, NewState}.
+
+handle_cast({check,{DelayBound}}, State) ->
+  {execution, 1, OrigSch} = State#comm_state.initial_exec,
+  %%% TODO: DCs list must be generated dynamically
+  DCs = [{'dev1@127.0.0.1',{1454,673786,555079}}, {'dev2@127.0.0.1',{1454,674114,902272}}, {'dev3@127.0.0.1',{1454,674115,135857}}],
+  OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
+  TxnsData = State#comm_state.txns_data,
+  Clusters = State#comm_state.clusters,
+  comm_replayer:start_link(DelayBound, TxnsData, Clusters, DCs, OrigSymSch),
+  NewState = State#comm_state{phase = init_test},
+  comm_replayer:setup_next_test1(),
+  {noreply, NewState};
+
+handle_cast(test_initialized, State) ->
+  NewState = State#comm_state{phase = replay},
+  comm_replayer:replay_next_async(),
+  {noreply, NewState};
+
+handle_cast(run_next_test1, State) ->
+  comm_replayer:setup_next_test1(),
+  {noreply, State};
+
+handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) ->
+  ok = comm_replayer:update_txns_data(LocalTxnData, InterDCTxn, TxId),
+  comm_replayer:replay_next_async(),
+  {noreply, State};
+
+handle_cast({acknowledge_delivery, {_TxId}}, State) ->
+%%  io:format("~n received acknowledgement from Antidote for delivering a remote txn.~n"),
+  comm_replayer:replay_next_async(),
+  {noreply, State};
 
 handle_cast(stop, State) ->
     {stop, normal, State}.

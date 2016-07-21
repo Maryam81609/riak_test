@@ -23,6 +23,7 @@
   %dispatch_current_event/0,
   is_end_current_schedule/0,
   print_curr_event/0,
+  schedule_count/0,
   stop/0
   ]).
 
@@ -50,6 +51,9 @@
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 start_link([DelayBound, DCs, OrigSymSch]) ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [[DelayBound, DCs, OrigSymSch]], []).
+
+schedule_count() ->
+  gen_server:call(?SERVER, schedule_count).
 
 has_next_schedule() ->
   gen_server:call(?SERVER, has_next_schedule).
@@ -87,15 +91,10 @@ stop() ->
   {ok, State :: #scheduler_state{}} | {ok, State :: #scheduler_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
 init([[DelayBound, DCs, OrigSymSch]]) ->
-  %{OrigSchSym, DCs} = commander:get_scheduling_data(),
   comm_delay_sequence:start_link(DelayBound, length(OrigSymSch)),
-  io:format("~nOrigSchSym:~p~n", [OrigSymSch]),
   EventCount = length(OrigSymSch),
 
-  InitState = #scheduler_state{delay_bound = DelayBound, event_count = EventCount, orig_sch_sym = OrigSymSch, dcs = DCs},%%, orig_sch = OrigSch
-%%  io:format("~n Symbolic Schedule event count:~p~n at initial state: ~p~n", [EventCount, InitState#scheduler_state.orig_sch_sym]),
-%%  io:format("Scheduler Initialized...~n"),
-%%  riak_test ! stop,
+  InitState = #scheduler_state{delay_bound = DelayBound, event_count = EventCount, orig_sch_sym = OrigSymSch, dcs = DCs, schedule_count = 0},
   {ok, InitState}.
 
 %%--------------------------------------------------------------------
@@ -117,19 +116,23 @@ handle_call(has_next_schedule, _From, State) ->
   Reply = comm_delay_sequence:has_next(),
   {reply, Reply, State};
 
+handle_call(schedule_count, _From, State) ->
+  SchCnt = State#scheduler_state.schedule_count,
+  {reply, SchCnt, State};
+
 handle_call(setup_next_schedule, _From, State) ->
 
   {OrigSchSym, _DCs} = commander:get_scheduling_data(),
-  io:format("~nOrigSchSym:~p~n", [OrigSchSym]),
   EventCount = length(OrigSchSym),
 
   DelaySeq = comm_delay_sequence:next(),
   DCs = State#scheduler_state.dcs,
-  %% Set stable snapshot in all DCs to 0
+  %%% Set stable snapshot in all DCs to 0
   InitSS = lists:foldl(fun(Dc, SS1) -> dict:store(Dc, 0, SS1) end, dict:new(), DCs),
   LogicalSS = lists:foldl(fun(Dc, LSS1) -> dict:store(Dc, InitSS, LSS1) end, dict:new(), DCs),
+  SchCnt = State#scheduler_state.schedule_count,
   InitState = State#scheduler_state{orig_sch_sym = OrigSchSym, curr_delay_seq = DelaySeq, curr_sch = [], dependency = dict:new(),
-    delayed = [], curr_event_index = 0, logical_ss = LogicalSS, delayed_count = 0, event_count = EventCount},
+    delayed = [], curr_event_index = 0, logical_ss = LogicalSS, delayed_count = 0, event_count = EventCount, schedule_count = SchCnt+1},
   {reply, ok, InitState};
 
 handle_call(next_event, _From, State) ->
@@ -138,17 +141,14 @@ handle_call(next_event, _From, State) ->
   SS = State#scheduler_state.logical_ss,
   EventsCount = State#scheduler_state.event_count,
   NewCurrEventIndex = State#scheduler_state.curr_event_index + 1,
-  io:format("~nOrigSchSym (before update):~p~n", [OrigSymSch]),
-  io:format("~nDDDelayeds:~p~n", [State#scheduler_state.delayed]),
   CurrEvent = lists:nth(NewCurrEventIndex, OrigSymSch),
   NextDelIndex = comm_delay_sequence:get_next_delay_index(),
-  io:format("~nNext Del Index: ~p~n", [NextDelIndex]),
-  io:format("~nEvents count: ~p~n", [EventsCount]),
 
- %% ?assert(NewCurrEventIndex < NextDelIndex), %% sanity check
   NewOrigSch = update_event_data(CurrEvent, OrigSymSch, SS), %% Updates ST and CT of the local CurrEvent and its replications
-  io:format("~nOrigSchSym (after):~p~n", [NewOrigSch]),
   CurrEvent1 = lists:nth(NewCurrEventIndex, NewOrigSch),
+
+  io:format("~nDelayed:~p~nNext Del Index:~p~nCurrSch length:~p~nTotalEventsCount:~p~n", [State#scheduler_state.delayed, NextDelIndex, length(CurrSch), EventsCount]),
+
   {NewState1, NewCurrEvent} = case type(CurrEvent) of
                               local ->
                                 if
@@ -162,8 +162,6 @@ handle_call(next_event, _From, State) ->
                                     {State3, none};
                                   true ->
                                     NewCurrSch = CurrSch ++ [CurrEvent1],
-                                    %%% TODO: check if this is required
-                                    %NewDep = update_dependency(),
 
                                     %%% Update SS %%%
                                     EventDC = CurrEvent1#local_event.event_dc,
@@ -174,7 +172,7 @@ handle_call(next_event, _From, State) ->
                                     %%% End of update SS %%%
 
                                     State1 = State#scheduler_state{orig_sch_sym = NewOrigSch ,curr_sch = NewCurrSch, curr_event_index = NewCurrEventIndex,
-                                      logical_ss = NewLogicalSS1}, %% dependency = NewDep,
+                                      logical_ss = NewLogicalSS1},
                                     {State1, CurrEvent1}
                                 end;
                               remote ->
@@ -198,42 +196,38 @@ handle_call(next_event, _From, State) ->
                                     NewDelayed = Delayed ++ [CurrEvent1],
                                     comm_delay_sequence:spend_current_delay_index(),
 
-                                    State4 = State#scheduler_state{orig_sch_sym = NewOrigSch , curr_event_index = NewCurrEventIndex, delayed = NewDelayed}, %% dependency = NewDep,
+                                    State4 = State#scheduler_state{orig_sch_sym = NewOrigSch , curr_event_index = NewCurrEventIndex, delayed = NewDelayed},
                                     {State4, none};
                                   not DepSatisfied or IsRepl ->
+%%                                    io:format("~nDepSatisfied:~p~nIsRepl:~p~n", [DepSatisfied, IsRepl]),
                                     %%% Delay current event
                                     Delayed1 = State#scheduler_state.delayed,
                                     NewDelayed1 = Delayed1 ++ [CurrEvent1],
 
-                                    State5 = State#scheduler_state{orig_sch_sym = NewOrigSch , curr_event_index = NewCurrEventIndex, delayed = NewDelayed1}, %% dependency = NewDep,
+                                    State5 = State#scheduler_state{orig_sch_sym = NewOrigSch , curr_event_index = NewCurrEventIndex, delayed = NewDelayed1},
                                     {State5, none};
                                   true ->
                                     NewCurrSch = CurrSch ++ [CurrEvent1],
-                                    %%% TODO: check if this is required
-                                    %NewDep2 = update_dependency(),
+
                                     %%% Update SS
-                                    %EventDC2 = CurrEvent1#remote_event.event_dc,
-                                    %{ok, DCSS2} = dict:find(EventDC2, SS),
                                     NewEventCT2 = CurrEvent1#remote_event.event_commit_time,
                                     EventOrigDC = CurrEvent1#remote_event.event_original_dc,
                                     NewDCSS2 = dict:store(EventOrigDC, NewEventCT2, DCSS2),
                                     NewLogicalSS2 = dict:store(EventDC2, NewDCSS2, SS),
                                     %%% End of update SS
+
                                     State2 = State#scheduler_state{orig_sch_sym = NewOrigSch ,curr_sch = NewCurrSch, curr_event_index = NewCurrEventIndex,
-                                      logical_ss = NewLogicalSS2}, %% dependency = NewDep2,
+                                      logical_ss = NewLogicalSS2},
                                     {State2, CurrEvent1}
                                 end
                               end,
-  %% io:format("~nCurrent Event Index: ~p~n", [NewState1#scheduler_state.curr_event_index]),
   NewState = case NewState1#scheduler_state.curr_event_index of
                EventsCount ->
                   Delayed3 = NewState1#scheduler_state.delayed,
-                  %% io:format("~n Delayed list: ~p~n", [Delayed3]),
                   NewState1#scheduler_state{orig_sch_sym = Delayed3, delayed = [], curr_event_index = 0};
                 _ ->
                   NewState1
               end,
-  %% io:format("~nDelayed events:: ~p~n", [NewState1#scheduler_state.delayed]),
   {reply, NewCurrEvent, NewState};
 
 handle_call(is_end_current_schedule, _From, State) ->

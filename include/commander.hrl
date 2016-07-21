@@ -47,7 +47,7 @@
                     trace :: [event()]}).
 -type execution() :: #execution{}.
 -type delay_seq() :: [non_neg_integer()].
--type phase() :: record | replay.
+-type phase() :: record | replay | init_test.
 
 -record(exec_state, {test_module :: atom(),
                      exec_events :: list(pos_integer())}).
@@ -74,8 +74,8 @@
   txn_map :: dict(),
   sch_count :: pos_integer(),
   clusters :: list(),
-  dcs :: list(dc())
-  %%history :: list(event())
+  dcs :: list(dc()),
+  latest_txids :: [txid()]
 }).
 
 -record(scheduler_state, {
@@ -90,5 +90,11 @@
   orig_sch_sym :: list(term()),
   curr_event_index :: non_neg_integer(),
   logical_ss :: dict(),
-  dcs :: list()
+  dcs :: list(),
+  schedule_count::non_neg_integer()
+}).
+
+-record(verifier_state, {
+  app_objects :: list(tuple()), %% {Key, Type, bucket}
+  test_module :: atom()
 }).

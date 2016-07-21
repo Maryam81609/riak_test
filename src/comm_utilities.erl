@@ -71,14 +71,11 @@ trim(remote_event, Event) ->
     #remote_event{event_dc = EvDc, event_node = EvNode, event_original_dc = EvOrigDc, event_commit_time = EvCT, event_snapshot_time = EvST, event_txns = EvTxns}.
 
 reset_dcs(Clusters) ->
-    %%commander:get_clusters()
-    io:format("~nReplayer setup env ...~nCluaters: ~p~n", [Clusters]),
-    %% TODO: modify after moving to common test
+    io:format("~nReseting test environment...~nCluaters: ~p~n", [Clusters]),
     Clean = rt_config:get(clean_cluster, true),
     Clusters1 = common:clean_clusters(Clusters),
     ok = common:setup_dc_manager(Clusters1, Clean),
     Clusters1.
-
 
 type(Event) ->
     if
