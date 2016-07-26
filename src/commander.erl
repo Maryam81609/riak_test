@@ -22,6 +22,8 @@
         acknowledge_delivery/1,
         test_passed/0,
         passed_test_count/0,
+        get_app_objects/2,
+        display_result/0,
         %% callbacks
         init/1,
         handle_cast/2,
@@ -66,6 +68,9 @@ test_passed() ->
 passed_test_count() ->
   gen_server:call(?SERVER, passed_test_count).
 
+get_app_objects(Mod, Objs) ->
+  gen_server:call(?SERVER, {get_app_objects, {Mod, Objs}}).
+
 check(DelayBound) ->
   gen_server:cast(?SERVER, {check, {DelayBound}}).
 
@@ -81,6 +86,9 @@ update_replay_txns_data(LocalTxnData, InterDCTxn, TxId) ->
 acknowledge_delivery(TxId) ->
   gen_server:cast(?SERVER, {acknowledge_delivery, {TxId}}).
 
+display_result() ->
+  gen_server:call(?SERVER, display_result).
+
 stop() ->
     gen_server:cast(?SERVER, stop).
 
@@ -93,8 +101,16 @@ init([]) ->
     NewState = comm_recorder:init_record(ExecId, #comm_state{}),
     {ok, NewState}.
 
+handle_call(display_result, _From, State) ->
+  display_check_result(),
+  {reply, ok, State};
+
+handle_call({get_app_objects, {Mod, Objs}}, _From, State) ->
+  {ok, _} = comm_verifier:start_link(Mod, Objs),
+  {reply, ok, State};
+
 handle_call(passed_test_count, _From, State) ->
-  PassedTestCount = comm_scheduler:passed_schedule_count(),
+  PassedTestCount = comm_scheduler:schedule_count(),
   {reply, PassedTestCount, State};
 
 handle_call(test_passed, _From, State) ->
@@ -159,8 +175,9 @@ handle_call({update_upstream_event_data, {Data}}, _From, State) ->
     {reply, ok, NewState3};
 
 handle_call({get_upstream_event_data, {Data}}, _From, State) ->
-    {_M, [EvNo | _ ]} = Data,
-    NewUpstreamEvent = #upstream_event{event_no = EvNo, event_data = Data, event_txns = []},
+    {_M, [EvNo | Tail ]} = Data,
+    [EventNode, _] = Tail,
+    NewUpstreamEvent = #upstream_event{event_no = EvNo, event_node = EventNode, event_data = Data, event_txns = []},
     NewUpstreamEvents = State#comm_state.upstream_events ++ [NewUpstreamEvent],
     NewState = State#comm_state{upstream_events = NewUpstreamEvents},
     {reply, ok, NewState};
@@ -201,12 +218,33 @@ handle_cast(run_next_test1, State) ->
 
 handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) ->
   ok = comm_replayer:update_txns_data(LocalTxnData, InterDCTxn, TxId),
-  comm_replayer:replay_next_async(),
+
+  %%% Check application invariant
+  CurrSch = comm_scheduler:curr_schedule(),
+  LatestEvent = lists:last(CurrSch),
+  TestRes = comm_verifier:check_object_invariant(LatestEvent),
+  %%% If test result is true continue exploring more schedules; otherwise provide a counter example
+  case TestRes of
+    true ->
+      comm_replayer:replay_next_async();
+    {caught, Exception, Reason} ->
+      display_counter_example(Exception, Reason)
+  end,
   {noreply, State};
 
 handle_cast({acknowledge_delivery, {_TxId}}, State) ->
 %%  io:format("~n received acknowledgement from Antidote for delivering a remote txn.~n"),
-  comm_replayer:replay_next_async(),
+  %%% Check application invariant
+  CurrSch = comm_scheduler:curr_schedule(),
+  LatestEvent = lists:last(CurrSch),
+  TestRes = comm_verifier:check_object_invariant(LatestEvent),
+  %%% If test result is true continue exploring more schedules; otherwise provide a counter example
+  case TestRes of
+    true ->
+      comm_replayer:replay_next_async();
+    {caught, Exception, Reason} ->
+      display_counter_example(Exception, Reason)
+  end,
   {noreply, State};
 
 handle_cast(stop, State) ->
@@ -224,3 +262,15 @@ terminate(_Reason, _State) ->
 %%%====================================
 %%% Internal functions
 %%%====================================
+display_check_result() ->
+  io:format("~n~n===========================Verification Result===========================~n~n"),
+  io:format("Checking completed after exploring ~p schedules.~n", [comm_scheduler:schedule_count()]).
+
+display_counter_example(Exception, Reason) ->
+  io:format("~n~n===========================Verification Result===========================~n~n"),
+  io:format("Checking failed after exploring ~p schedules, by exception: ~p~nWith reason: ~p~n", [comm_scheduler:schedule_count(), Exception, Reason]),
+  io:format("Delay sequence: "),
+  comm_delay_sequence:print_sequence(),
+  io:format("~n===========================Counter Example==========================="),
+  io:format("~n~p~n", [comm_scheduler:curr_schedule()]),
+  riak_test!stop().

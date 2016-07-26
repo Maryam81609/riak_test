@@ -18,12 +18,12 @@
 -export([start_link/1,
   has_next_schedule/0,
   setup_next_schedule/0,
-  %%next_schedule/0,
   next_event/0,
-  %dispatch_current_event/0,
   is_end_current_schedule/0,
   print_curr_event/0,
   schedule_count/0,
+  curr_schedule/0,
+
   stop/0
   ]).
 
@@ -70,6 +70,9 @@ is_end_current_schedule() ->
 print_curr_event() ->
   gen_server:call(?SERVER, print_curr_event).
 
+curr_schedule() ->
+  gen_server:call(?SERVER, curr_schedule).
+
 stop() ->
   gen_server:cast(?SERVER, stop).
 %%%===================================================================
@@ -113,8 +116,13 @@ init([[DelayBound, DCs, OrigSymSch]]) ->
   {stop, Reason :: term(), Reply :: term(), NewState :: #scheduler_state{}} |
   {stop, Reason :: term(), NewState :: #scheduler_state{}}).
 handle_call(has_next_schedule, _From, State) ->
-  Reply = comm_delay_sequence:has_next(),
+  SchCnt = State#scheduler_state.schedule_count,
+  Reply = comm_delay_sequence:has_next() orelse (SchCnt == 0),
   {reply, Reply, State};
+
+handle_call(curr_schedule, _From, State) ->
+  CurrSch = State#scheduler_state.curr_sch,
+  {reply, CurrSch, State};
 
 handle_call(schedule_count, _From, State) ->
   SchCnt = State#scheduler_state.schedule_count,

@@ -55,11 +55,12 @@ trim(Event) ->
 
 trim(local_event, Event) ->
     EvNo = Event#upstream_event.event_no,
+    EvNode = Event#upstream_event.event_node,
     EvDc = Event#upstream_event.event_dc,
     EvCT = Event#upstream_event.event_commit_time,
     EvST = Event#upstream_event.event_snapshot_time,
     EvTxns = Event#upstream_event.event_txns,
-    #local_event{event_no = EvNo, event_dc = EvDc, event_commit_time = EvCT, event_snapshot_time = EvST, event_txns =EvTxns};
+    #local_event{event_no = EvNo, event_node = EvNode, event_dc = EvDc, event_commit_time = EvCT, event_snapshot_time = EvST, event_txns =EvTxns};
 
 trim(remote_event, Event) ->
     EvDc = Event#downstream_event.event_dc,

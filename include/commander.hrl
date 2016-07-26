@@ -9,6 +9,7 @@
 -record(upstream_event, {event_no :: pos_integer(),
                         event_data :: term(),
                         event_dc :: dcid(),
+                        event_node :: node(),
                         %% TODO: merge following fields into one field: dict({txid(), {txn_commit_time :: non_neg_integer(), txn_snapshot_time :: dict()}})
                         event_commit_time :: non_neg_integer(),
                         event_snapshot_time :: dict(),
@@ -24,14 +25,17 @@
                            event_data :: [term()], %% => event_txns :: [inetrdc_txn()]; event_txns list contains partial transactions
                            event_txns :: [txid()]}). %% => event_txid :: txid()
 
--type downstream_event() :: #downstream_event{}.
+%%-type downstream_event() :: #downstream_event{}.
 
 -record(local_event, {
   event_no :: pos_integer(),
   event_dc :: dcid(),
+  event_node :: node(),
   event_commit_time :: non_neg_integer(),
   event_snapshot_time :: dict(),
   event_txns :: [txid()]}).
+
+-type local_event() :: #local_event{}.
 
 -record(remote_event, {
   event_dc :: dcid(),
@@ -41,7 +45,9 @@
   event_snapshot_time :: dict(),
   event_txns :: [txid()]}).
 
--type event() :: upstream_event | downstream_event.
+-type remote_event() :: #remote_event{}.
+
+-type event() :: local_event() | remote_event().
 
 -record(execution, {id :: non_neg_integer(),
                     trace :: [event()]}).

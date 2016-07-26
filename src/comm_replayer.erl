@@ -140,7 +140,8 @@ handle_cast(setup_next_test1, State) ->
       ok = comm_scheduler:setup_next_schedule(),
       commander:test_initialized();
     false ->
-      riak_test ! stop
+      commander:display_result(),
+      riak_test!stop
   end,
   {noreply, State}.
 

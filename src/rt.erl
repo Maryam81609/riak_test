@@ -359,6 +359,17 @@ build_clusters(Settings) ->
          join_cluster(Nodes),
          lager:info("Cluster built: ~p", [Nodes])
      end || Nodes <- Clusters],
+    case lists:member(commander, erlang:registered()) of
+      true ->
+        case erlang:whereis(commander) =/= self() of
+        %%case commander:phase() of
+          %%record ->
+          true ->
+            ok = commander:get_clusters(Clusters);
+          _ -> noop
+        end;
+      _ -> noop
+    end,
     Clusters.
 
 %% @doc Start the specified Riak node

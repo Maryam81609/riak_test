@@ -108,10 +108,12 @@ init([DelayBound, MaxDelayIndex]) ->
   {stop, Reason :: term(), Reply :: term(), NewState :: #state{}} |
   {stop, Reason :: term(), NewState :: #state{}}).
 handle_call(has_next, _From, State) ->
+  DelayBound = State#state.delay_bound,
   Reply =
     case State#state.delay_seq of
-     [] -> true;
-     [_H | _T] -> lists:any(fun(E) -> E>0 end, State#state.delay_seq)
+      [] when DelayBound > 0 -> true;
+      [_H | _T] -> lists:any(fun(E) -> E>0 end, State#state.delay_seq);
+      _Else -> false
     end,
   {reply, Reply, State};
 
