@@ -67,7 +67,7 @@
                     %%% Used by Replayer
                     recent_tx :: txid(),
                     %txn_map :: dict(), %% {key:OriginalTxId{snapshot_time, server_pid}, val:NewInterDCTxn}
-                    clusters :: [dc()],
+                    clusters :: [list()], %% riak_test clusters
                     replay_history :: [execution()], %% Consider keeping only the list of event indices in the original exec
                     exec_counter :: non_neg_integer(), %% Name the recorded files
                     %%% Used by Recorder to record the initial execution

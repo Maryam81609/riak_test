@@ -83,3 +83,10 @@ type(Event) ->
         is_record(Event, local_event) -> local;
         is_record(Event, remote_event) -> remote
     end.
+
+get_all_dcs(Clusters) ->
+    lists:map(fun(Cluster) ->
+                Node = hd(Cluster),
+                rpc:call(Node, dc_utilities, get_my_dc_id, [])
+              end, Clusters).
+

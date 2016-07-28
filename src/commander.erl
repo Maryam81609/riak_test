@@ -118,11 +118,8 @@ handle_call(test_passed, _From, State) ->
 
 handle_call(get_scheduling_data, _From, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
-  %%% TODO: DCs list must be generated dynamically
-  DCs = [{'dev1@127.0.0.1',{1454,673786,555079}}, {'dev2@127.0.0.1',{1454,674114,902272}}, {'dev3@127.0.0.1',{1454,674115,135857}}],
   OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
-  Reply = {OrigSymSch, DCs},
-  {reply, Reply, State};
+  {reply, OrigSymSch, State};
 
 handle_call({get_clusters, Clusters}, _From, State) ->
     %%Only can get here in the initial run while setting the environment up
@@ -197,8 +194,11 @@ handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
 
 handle_cast({check,{DelayBound}}, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
-  %%% TODO: DCs list must be generated dynamically
-  DCs = [{'dev1@127.0.0.1',{1454,673786,555079}}, {'dev2@127.0.0.1',{1454,674114,902272}}, {'dev3@127.0.0.1',{1454,674115,135857}}],
+
+  %%% DCs list is obtainedS dynamically
+  Clusters = State#comm_state.clusters,
+  DCs = comm_utilities:get_all_dcs(Clusters),
+
   OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,

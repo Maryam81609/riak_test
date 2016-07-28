@@ -130,7 +130,7 @@ handle_call(schedule_count, _From, State) ->
 
 handle_call(setup_next_schedule, _From, State) ->
 
-  {OrigSchSym, _DCs} = commander:get_scheduling_data(),
+  OrigSchSym = commander:get_scheduling_data(),
   EventCount = length(OrigSchSym),
 
   DelaySeq = comm_delay_sequence:next(),
