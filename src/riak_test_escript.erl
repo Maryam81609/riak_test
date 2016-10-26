@@ -168,7 +168,7 @@ main(Args) ->
     add_deps(rt:get_deps()),
     add_deps("deps"),
 
-    [add_deps(Dep) || Dep <- rt_config:get(rt_deps, [])],
+  %%[add_deps(Dep) || Dep <- rt_config:get(rt_deps, [])],
     ENode = rt_config:get(rt_nodename, 'riak_test@127.0.0.1'),
     Cookie = rt_config:get(rt_cookie, riak),
     CoverDir = rt_config:get(cover_output, "coverage"),

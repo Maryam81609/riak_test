@@ -90,3 +90,12 @@ get_all_dcs(Clusters) ->
                 rpc:call(Node, dc_utilities, get_my_dc_id, [])
               end, Clusters).
 
+get_all_partitions(ReplayerState) ->
+    Clusters = ReplayerState#replay_state.clusters,
+    HeadNodes = lists:map(fun(Cluster) ->
+                            hd(Cluster)
+                          end, Clusters),
+
+    lists:map(fun(HeadNode) ->
+                rpc:call(HeadNode, dc_utilities, get_all_partitions, [])
+              end, HeadNodes).

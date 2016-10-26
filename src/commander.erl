@@ -19,7 +19,7 @@
         run_next_test1/0,
         test_initialized/0,
         update_replay_txns_data/3,
-        acknowledge_delivery/1,
+        acknowledge_delivery/2,
         test_passed/0,
         passed_test_count/0,
         get_app_objects/2,
@@ -83,8 +83,8 @@ test_initialized() ->
 update_replay_txns_data(LocalTxnData, InterDCTxn, TxId) ->
   gen_server:cast(?SERVER, {update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}).
 
-acknowledge_delivery(TxId) ->
-  gen_server:cast(?SERVER, {acknowledge_delivery, {TxId}}).
+acknowledge_delivery(TxId, Timestamp) ->
+  gen_server:cast(?SERVER, {acknowledge_delivery, {TxId, Timestamp}}).
 
 display_result() ->
   gen_server:call(?SERVER, display_result).
@@ -130,6 +130,7 @@ handle_call(phase, _From, State) ->
     Phase = State#comm_state.phase,
     {reply, Phase, State};
 
+%% TODO: handle the case, where the transaction has no update operation
 handle_call({get_downstream_event_data, {Data}}, _From, State) ->
     {EventDc, EventNode, EventTxn} = Data,
 
@@ -232,8 +233,7 @@ handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) 
   end,
   {noreply, State};
 
-handle_cast({acknowledge_delivery, {_TxId}}, State) ->
-%%  io:format("~n received acknowledgement from Antidote for delivering a remote txn.~n"),
+handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
   %%% Check application invariant
   CurrSch = comm_scheduler:curr_schedule(),
   LatestEvent = lists:last(CurrSch),

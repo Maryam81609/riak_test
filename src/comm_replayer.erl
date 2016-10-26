@@ -203,6 +203,7 @@ get_next_runnable_event() ->
     _ -> NextEvent
   end.
 
+-spec(replay(Event::remote_event(), State::#replay_state{}) -> #replay_state{}).
 replay(Event, State) ->
   case comm_utilities:type(Event) of
     local ->
@@ -232,20 +233,24 @@ replay(remote, Event, State) ->
   EventNode = Event#remote_event.event_node,
 
   {ok, TxId} = dict:find(PreTxId, TxnMap),
-%%%%%%  {ok, [_, {remote, PartialTxns}]} = dict:find(TxId, TxnData),
+  {ok, [_, {remote, PartialTxns}]} = dict:find(TxId, TxnData),
 
-  %%%%%%%%%%%%%%%%%%%% Not the correct way - only works for wallet
-  {ok, [{local, {TestModule, Args}}, _]} = dict:find(TxId, TxnData),
-  [EventNo, _Node, AppArgs] = Args,
-  NewArgs = [EventNo, EventNode, AppArgs],
-  TestModule:handle_event(NewArgs),
-  %%%%%%%%%%%%%%%%%%%%
+  ok = lists:foreach(fun(InterDcTxn) ->
+                       ok = rpc:call(EventNode, inter_dc_sub_vnode, deliver_txn, [InterDcTxn])
+                     end, PartialTxns),
+  PT = hd(PartialTxns),
+  NewTimestamp = PT#interdc_txn.timestamp,
+  OriginalDCId = PT#interdc_txn.dcid,
 
-%%%%%  ok = lists:foreach(fun(InterDcTxn) ->
-%%%%%                     ok = rpc:call(EventNode, inter_dc_sub_vnode, deliver_txn, [InterDcTxn])
-%%%%%                     end, PartialTxns),
-
-  %%% TODO: Update clock on all partitions to make the update visible on receiving DC
-
-  io:format("~n Replayed a remote event without updating clock in all partitions... ~n"),
+  %%% Update clock on all partitions in the target DC
+  Nodes = rpc:call(EventNode, dc_utilities, get_my_dc_nodes, []),
+  lists:foreach(fun(Node) ->
+                  Partitions = rpc:call(Node, dc_utilities, get_my_partitions, []),
+                  lists:foreach(fun(Partition)->
+                                  ok = rpc:call(Node, inter_dc_dep_vnode, update_partition_clock, [Partition, OriginalDCId,
+                                    NewTimestamp])
+                                end, Partitions)
+                end, Nodes),
+  %% TODO: sleep?????
+  timer:sleep(1000),
   State.
