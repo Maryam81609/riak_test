@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 15. May 2016 11:06 AM
 %%%-------------------------------------------------------------------
--module(comm_scheduler).
+-module(comm_delay_scheduler).
 -author("maryam").
 
 -include("commander.hrl").

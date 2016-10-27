@@ -179,7 +179,7 @@ main(Args) ->
     %% ==================== Commander Instrumentation ====================
     %% Start Commander
     %% ===================================================================
-    {ok, _Pid} = commander:start_link(),
+    {ok, _Pid} = commander:start_link(comm_delay_scheduler), %% comm_random_scheduler
     lager:info("Cammander started on: ~p", [node()]),
     true = lists:member(commander, erlang:registered()),
     %% ==================== End of Instrumentation Region ====================

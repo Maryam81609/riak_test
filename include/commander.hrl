@@ -60,6 +60,7 @@
 -type exec_state() :: #exec_state{}.
 
 -record(comm_state, {%%% Common fields
+                    scheduler :: atom(),
                     txns_data :: dict(), %%txId -> [{local, localData}, {remote,list(partialTxns)}]
                     initial_exec :: execution(),
                     curr_exec :: execution(), %% Shows the scheduled execution is getting replayed
@@ -76,6 +77,7 @@
                     curr_delay_seq :: delay_seq()}).
 
 -record(replay_state, {
+  scheduler :: atom(),
   txns_data :: dict(), %%txId -> [{local, localData}, {remote,list(partialTxns)}]
   txn_map :: dict(),
   sch_count :: pos_integer(),

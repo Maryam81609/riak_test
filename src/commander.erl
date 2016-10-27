@@ -6,7 +6,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% Public API
--export([start_link/0,
+-export([start_link/1,
         stop/0,
         update_upstream_event_data/1,
         get_upstream_event_data/1,
@@ -38,8 +38,8 @@
 %%%====================================
 %%% Public API
 %%%====================================
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Scheduler) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler], []).
 
 get_clusters(Clusters) ->
     gen_server:call(?SERVER, {get_clusters, Clusters}).
@@ -95,14 +95,15 @@ stop() ->
 %%%====================================
 %%% Callbacks
 %%%====================================
-init([]) ->
+init([Scheduler]) ->
     lager:info("Commander started on: ~p", [node()]),
     ExecId = 1,
-    NewState = comm_recorder:init_record(ExecId, #comm_state{}),
+    NewState = comm_recorder:init_record(ExecId, #comm_state{scheduler = Scheduler}),
     {ok, NewState}.
 
 handle_call(display_result, _From, State) ->
-  display_check_result(),
+  Scheduler = State#comm_state.scheduler,
+  display_check_result(Scheduler),
   {reply, ok, State};
 
 handle_call({get_app_objects, {Mod, Objs}}, _From, State) ->
@@ -110,7 +111,8 @@ handle_call({get_app_objects, {Mod, Objs}}, _From, State) ->
   {reply, ok, State};
 
 handle_call(passed_test_count, _From, State) ->
-  PassedTestCount = comm_scheduler:schedule_count(),
+  Scheduler = State#comm_state.scheduler,
+  PassedTestCount = Scheduler:schedule_count(),
   {reply, PassedTestCount, State};
 
 handle_call(test_passed, _From, State) ->
@@ -195,6 +197,7 @@ handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
 
 handle_cast({check,{DelayBound}}, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
+  Scheduler = State#comm_state.scheduler,
 
   %%% DCs list is obtainedS dynamically
   Clusters = State#comm_state.clusters,
@@ -203,7 +206,7 @@ handle_cast({check,{DelayBound}}, State) ->
   OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
-  comm_replayer:start_link(DelayBound, TxnsData, Clusters, DCs, OrigSymSch),
+  comm_replayer:start_link(Scheduler, DelayBound, TxnsData, Clusters, DCs, OrigSymSch),
   NewState = State#comm_state{phase = init_test},
   comm_replayer:setup_next_test1(),
   {noreply, NewState};
@@ -220,8 +223,9 @@ handle_cast(run_next_test1, State) ->
 handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) ->
   ok = comm_replayer:update_txns_data(LocalTxnData, InterDCTxn, TxId),
 
+  Scheduler = State#comm_state.scheduler,
   %%% Check application invariant
-  CurrSch = comm_scheduler:curr_schedule(),
+  CurrSch = Scheduler:curr_schedule(),
   LatestEvent = lists:last(CurrSch),
   TestRes = comm_verifier:check_object_invariant(LatestEvent),
   %%% If test result is true continue exploring more schedules; otherwise provide a counter example
@@ -229,13 +233,14 @@ handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) 
     true ->
       comm_replayer:replay_next_async();
     {caught, Exception, Reason} ->
-      display_counter_example(Exception, Reason)
+      display_counter_example(Scheduler, Exception, Reason)
   end,
   {noreply, State};
 
 handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
+  Scheduler = State#comm_state.scheduler,
   %%% Check application invariant
-  CurrSch = comm_scheduler:curr_schedule(),
+  CurrSch = Scheduler:curr_schedule(),
   LatestEvent = lists:last(CurrSch),
   TestRes = comm_verifier:check_object_invariant(LatestEvent),
   %%% If test result is true continue exploring more schedules; otherwise provide a counter example
@@ -243,7 +248,7 @@ handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
     true ->
       comm_replayer:replay_next_async();
     {caught, Exception, Reason} ->
-      display_counter_example(Exception, Reason)
+      display_counter_example(Scheduler, Exception, Reason)
   end,
   {noreply, State};
 
@@ -262,15 +267,15 @@ terminate(_Reason, _State) ->
 %%%====================================
 %%% Internal functions
 %%%====================================
-display_check_result() ->
+display_check_result(Scheduler) ->
   io:format("~n~n===========================Verification Result===========================~n~n"),
-  io:format("Checking completed after exploring ~p schedules.~n", [comm_scheduler:schedule_count()]).
+  io:format("Checking completed after exploring ~p schedules.~n", [Scheduler:schedule_count()]).
 
-display_counter_example(Exception, Reason) ->
+display_counter_example(Scheduler, Exception, Reason) ->
   io:format("~n~n===========================Verification Result===========================~n~n"),
-  io:format("Checking failed after exploring ~p schedules, by exception: ~p~nWith reason: ~p~n", [comm_scheduler:schedule_count(), Exception, Reason]),
+  io:format("Checking failed after exploring ~p schedules, by exception: ~p~nWith reason: ~p~n", [Scheduler:schedule_count(), Exception, Reason]),
   io:format("Delay sequence: "),
   comm_delay_sequence:print_sequence(),
   io:format("~n===========================Counter Example==========================="),
-  io:format("~n~p~n", [comm_scheduler:curr_schedule()]),
+  io:format("~n~p~n", [Scheduler:curr_schedule()]),
   riak_test!stop().

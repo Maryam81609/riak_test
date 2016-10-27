@@ -15,7 +15,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/5,
+-export([start_link/6,
   setup_next_test1/0,
   replay_next_async/0,
   update_txns_data/3,
@@ -39,11 +39,11 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(DelayBound::non_neg_integer(), TxnsData::dict(), Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
+-spec(start_link(Scheduler::atom(), DelayBound::non_neg_integer(), TxnsData::dict(), Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 
-start_link(DelayBound, TxnsData, Clusters, DCs, OrigSymSch) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [DelayBound, TxnsData, Clusters, DCs, OrigSymSch], []).
+start_link(Scheduler, DelayBound, TxnsData, Clusters, DCs, OrigSymSch) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, DelayBound, TxnsData, Clusters, DCs, OrigSymSch], []).
 
 setup_next_test1() ->
   gen_server:cast(?SERVER, setup_next_test1).
@@ -71,13 +71,13 @@ update_txns_data(LocalTxnData, InterDCTxn, TxId) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #replay_state{}} | {ok, State :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([DelayBound, TxnsData, Clusters, DCs, OrigSymSch]) ->
+init([Scheduler, DelayBound, TxnsData, Clusters, DCs, OrigSymSch]) ->
   TxIds = dict:fetch_keys(TxnsData),
   TxnMap = lists:foldl(fun(T, UpdatedTxnMap) ->
                             dict:store(T, T, UpdatedTxnMap)
                           end, dict:new(), TxIds),
-  comm_scheduler:start_link([DelayBound, DCs, OrigSymSch]),
-  State = #replay_state{txns_data = TxnsData, txn_map = TxnMap, sch_count = 0, dcs = DCs, clusters = Clusters},
+  Scheduler:start_link([DelayBound, DCs, OrigSymSch]),
+  State = #replay_state{scheduler = Scheduler, txns_data = TxnsData, txn_map = TxnMap, sch_count = 0, dcs = DCs, clusters = Clusters},
   {ok, State}.
 
 %%--------------------------------------------------------------------
@@ -122,9 +122,10 @@ handle_call({update_txns_data, {_EventData, InterDCTxn, TxId}}, _From, State) ->
   {noreply, NewState :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #replay_state{}}).
 handle_cast(replay_next_async, State) ->
-  NewState = case comm_scheduler:is_end_current_schedule() of
+  Scheduler = State#replay_state.scheduler,
+  NewState = case Scheduler:is_end_current_schedule() of
                 false ->
-                  NextEvent = get_next_runnable_event(),
+                  NextEvent = get_next_runnable_event(Scheduler),
                   replay(NextEvent, State);
                 true ->
                   ok = commander:test_passed(),
@@ -134,10 +135,11 @@ handle_cast(replay_next_async, State) ->
   {noreply, NewState};
 
 handle_cast(setup_next_test1, State) ->
-  case comm_scheduler:has_next_schedule() of
+  Scheduler = State#replay_state.scheduler,
+  case Scheduler:has_next_schedule() of
     true ->
       comm_utilities:reset_dcs(State#replay_state.clusters),
-      ok = comm_scheduler:setup_next_schedule(),
+      ok = Scheduler:setup_next_schedule(),
       commander:test_initialized();
     false ->
       commander:display_result(),
@@ -196,10 +198,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-get_next_runnable_event() ->
-  NextEvent = comm_scheduler:next_event(),
+get_next_runnable_event(Scheduler) ->
+  NextEvent = Scheduler:next_event(),
   case NextEvent of
-    none -> get_next_runnable_event();
+    none -> get_next_runnable_event(Scheduler);
     _ -> NextEvent
   end.
 
