@@ -15,7 +15,7 @@
         get_scheduling_data/0,
         phase/0,
         get_clusters/1,
-        check/1,
+        check/2,
         run_next_test1/0,
         test_initialized/0,
         update_replay_txns_data/3,
@@ -71,8 +71,8 @@ passed_test_count() ->
 get_app_objects(Mod, Objs) ->
   gen_server:call(?SERVER, {get_app_objects, {Mod, Objs}}).
 
-check(DelayBound) ->
-  gen_server:cast(?SERVER, {check, {DelayBound}}).
+check(DelayBound, Bound) ->
+  gen_server:cast(?SERVER, {check, {DelayBound, Bound}}).
 
 run_next_test1() ->
   gen_server:cast(?SERVER, run_next_test1).
@@ -195,7 +195,7 @@ handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
                 end,
     {reply, ok, NewState}.
 
-handle_cast({check,{DelayBound}}, State) ->
+handle_cast({check,{DelayBound, Bound}}, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
   Scheduler = State#comm_state.scheduler,
 
@@ -206,7 +206,7 @@ handle_cast({check,{DelayBound}}, State) ->
   OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
-  comm_replayer:start_link(Scheduler, DelayBound, TxnsData, Clusters, DCs, OrigSymSch),
+  comm_replayer:start_link(Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch),
   NewState = State#comm_state{phase = init_test},
   comm_replayer:setup_next_test1(),
   {noreply, NewState};
@@ -274,8 +274,13 @@ display_check_result(Scheduler) ->
 display_counter_example(Scheduler, Exception, Reason) ->
   io:format("~n~n===========================Verification Result===========================~n~n"),
   io:format("Checking failed after exploring ~p schedules, by exception: ~p~nWith reason: ~p~n", [Scheduler:schedule_count(), Exception, Reason]),
-  io:format("Delay sequence: "),
-  comm_delay_sequence:print_sequence(),
+  if
+    Scheduler == comm_delay_scheduler ->
+      io:format("Delay sequence: "),
+      comm_delay_sequence:print_sequence();
+    true ->
+      noop
+  end,
   io:format("~n===========================Counter Example==========================="),
   io:format("~n~p~n", [Scheduler:curr_schedule()]),
   riak_test!stop().

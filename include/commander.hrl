@@ -106,3 +106,18 @@
   app_objects :: list(tuple()), %% {Key, Type, bucket}
   test_module :: atom()
 }).
+
+-record(rand_schlr_state, {
+  event_count_total :: pos_integer(),
+  curr_sch :: list(term()),
+  dependency :: dict(),
+  orig_sch_sym :: list(term()),
+  curr_event_index :: non_neg_integer(),
+  remained :: list(),
+  processed :: list(),
+  logical_ss :: dict(),
+  dcs :: list(),
+  schedule_count::non_neg_integer(),
+  bound :: pos_integer(),
+  initial_seed :: term()
+}).
