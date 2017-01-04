@@ -12,14 +12,15 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/2,
-        has_next/0,
-        next/0,
-        get_next_delay_index/0,
-        spend_current_delay_index/0,
-        is_end_current_delay_seq/0,
-        get_delay_at_index/1,
-        print_sequence/0, stop/0]).
+-export([start_link/3,
+        has_next/1,
+        next/1,
+        get_next_delay_index/1,
+        spend_current_delay_index/1,
+        is_end_current_delay_seq/1,
+        get_delay_at_index/2,
+        print_sequence/1,
+        stop/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -29,7 +30,7 @@
   terminate/2,
   code_change/3]).
 
--define(SERVER, ?MODULE).
+%%-define(SERVER, ?MODULE).
 
 -record(state, {delay_seq=[], delay_bound, max_delay_indx, current_delay_seq_indx}).
 
@@ -43,34 +44,33 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(DelayBound::non_neg_integer(), MaxDelayIndex::pos_integer()) ->
-  {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link(DelayBound, MaxDelayIndex) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [DelayBound, MaxDelayIndex], []).
+start_link(Server, DelayBound, MaxDelayIndex) -> %% Type :: regular | delayed
+  %%Server = ?SERVER ++ Type,
+  gen_server:start_link({local, Server}, ?MODULE, [DelayBound, MaxDelayIndex], []).
 
-has_next() ->
-  gen_server:call(?SERVER, has_next).
+has_next(Server) ->
+  gen_server:call(Server, has_next).
 
-next() ->
-  gen_server:call(?SERVER, next).
+next(Server) ->
+  gen_server:call(Server, next).
 
-get_next_delay_index() ->
-  gen_server:call(?SERVER, get_next_delay_index).
+get_next_delay_index(Server) ->
+  gen_server:call(Server, get_next_delay_index).
 
-spend_current_delay_index() ->
-  gen_server:call(?SERVER, spend_current_delay_index).
+spend_current_delay_index(Server) ->
+  gen_server:call(Server, spend_current_delay_index).
 
-is_end_current_delay_seq() ->
-  gen_server:call(?SERVER, is_end_current_delay_seq).
+is_end_current_delay_seq(Server) ->
+  gen_server:call(Server, is_end_current_delay_seq).
 
-get_delay_at_index(Index) ->
-  gen_server:call(?SERVER, {get_delay_at_index, {Index}}).
+get_delay_at_index(Server, Index) ->
+  gen_server:call(Server, {get_delay_at_index, {Index}}).
 
-print_sequence() ->
-  gen_server:call(?SERVER, print_sequence).
+print_sequence(Server) ->
+  gen_server:call(Server, print_sequence).
 
-stop() ->
-  gen_server:cast(?SERVER, stop).
+stop(Server) ->
+  gen_server:cast(Server, stop).
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -120,7 +120,15 @@ handle_call(has_next, _From, State) ->
 handle_call(next, _From, State = #state{delay_seq = DelaySeq, delay_bound = DelayBound, max_delay_indx = MaxDelayIndex}) ->
   NewDelaySeq =
     case DelaySeq of
-      [] -> lists:seq(MaxDelayIndex-DelayBound, MaxDelayIndex - 1);
+      [] ->
+        if
+          DelayBound > MaxDelayIndex ->
+            L = lists:seq(0, MaxDelayIndex - 1),
+            N = DelayBound - MaxDelayIndex,
+            add_0_to_L(N, L);
+          true ->
+            lists:seq(MaxDelayIndex-DelayBound, MaxDelayIndex - 1)
+        end;
       [_H | _T] ->
         {L1, [Item | Tail]} = lists:splitwith(fun(N) -> N =< 0 end, DelaySeq),
         L2 = [Item-1 | Tail],
@@ -128,7 +136,7 @@ handle_call(next, _From, State = #state{delay_seq = DelaySeq, delay_bound = Dela
         NewL1 ++ L2
     end,
   NewState = State#state{delay_seq = NewDelaySeq, current_delay_seq_indx = 1},
-  {reply, ok, NewState};
+  {reply, NewDelaySeq, NewState};
 
 handle_call(get_next_delay_index, _From, State) ->
   DelaySeq = State#state.delay_seq,
@@ -241,3 +249,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+add_0_to_L(0, L) ->
+  L;
+
+add_0_to_L(N, L) ->
+  NewL = add_0_to_L(N - 1, L),
+  [0] ++ NewL.

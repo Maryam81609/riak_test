@@ -56,18 +56,6 @@ update_txns_data(LocalTxnData, InterDCTxn, TxId) ->
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Initializes the server
-%%
-%% @spec init(Args) -> {ok, State} |
-%%                     {ok, State, Timeout} |
-%%                     ignore |
-%%                     {stop, Reason}
-%% @end
-%%--------------------------------------------------------------------
 -spec(init(Args :: term()) ->
   {ok, State :: #replay_state{}} | {ok, State :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
@@ -80,13 +68,6 @@ init([Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch]) ->
   State = #replay_state{scheduler = Scheduler, txns_data = TxnsData, txn_map = TxnMap, sch_count = 0, dcs = DCs, clusters = Clusters},
   {ok, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling call messages
-%%
-%% @end
-%%--------------------------------------------------------------------
 -spec(handle_call(Request :: term(), From :: {pid(), Tag :: term()},
     State :: #replay_state{}) ->
   {reply, Reply :: term(), NewState :: #replay_state{}} |
@@ -110,24 +91,20 @@ handle_call({update_txns_data, {_EventData, InterDCTxn, TxId}}, _From, State) ->
   NewState = State#replay_state{txn_map = NewTxnMap, txns_data = NewTxnsData},
   {reply, ok, NewState}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling cast messages
-%%
-%% @end
-%%--------------------------------------------------------------------
 -spec(handle_cast(Request :: term(), State :: #replay_state{}) ->
   {noreply, NewState :: #replay_state{}} |
   {noreply, NewState :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term(), NewState :: #replay_state{}}).
 handle_cast(replay_next_async, State) ->
   Scheduler = State#replay_state.scheduler,
+  io:format("~n+++ replayer +++ replay next +++ end of curr: ~w +++~n", [Scheduler:is_end_current_schedule()]),
   NewState = case Scheduler:is_end_current_schedule() of
                 false ->
                   NextEvent = get_next_runnable_event(Scheduler),
+                  io:format("~n+++replayer++NextEvent: ~w +++~n", [NextEvent]),
                   replay(NextEvent, State);
                 true ->
+                  io:format("~n+++ replayer +++ curr_schedule: ~w", [Scheduler:curr_schedule()]),
                   ok = commander:test_passed(),
                   commander:run_next_test1(),
                   State
@@ -140,6 +117,7 @@ handle_cast(setup_next_test1, State) ->
     true ->
       comm_utilities:reset_dcs(State#replay_state.clusters),
       ok = Scheduler:setup_next_schedule(),
+      io:format("~n+++ replayer +++ after setup +++~n"),
       commander:test_initialized();
     false ->
       commander:display_result(),
@@ -147,16 +125,6 @@ handle_cast(setup_next_test1, State) ->
   end,
   {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling all non call/cast messages
-%%
-%% @spec handle_info(Info, State) -> {noreply, State} |
-%%                                   {noreply, State, Timeout} |
-%%                                   {stop, Reason, State}
-%% @end
-%%--------------------------------------------------------------------
 -spec(handle_info(Info :: timeout() | term(), State :: #replay_state{}) ->
   {noreply, NewState :: #replay_state{}} |
   {noreply, NewState :: #replay_state{}, timeout() | hibernate} |
@@ -164,30 +132,11 @@ handle_cast(setup_next_test1, State) ->
 handle_info(_Info, State) ->
   {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any
-%% necessary cleaning up. When it returns, the gen_server terminates
-%% with Reason. The return value is ignored.
-%%
-%% @spec terminate(Reason, State) -> void()
-%% @end
-%%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #replay_state{}) -> term()).
 terminate(_Reason, _State) ->
   ok.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Convert process state when code is changed
-%%
-%% @spec code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% @end
-%%--------------------------------------------------------------------
 -spec(code_change(OldVsn :: term() | {down, term()}, State :: #replay_state{},
     Extra :: term()) ->
   {ok, NewState :: #replay_state{}} | {error, Reason :: term()}).
@@ -197,9 +146,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
 get_next_runnable_event(Scheduler) ->
   NextEvent = Scheduler:next_event(),
+  io:format("~n+++replayer++get_next_runnable_event++NextEvent: ~w +++~n", [NextEvent]),
   case NextEvent of
     none -> get_next_runnable_event(Scheduler);
     _ -> NextEvent
@@ -237,12 +186,17 @@ replay(remote, Event, State) ->
   {ok, TxId} = dict:find(PreTxId, TxnMap),
   {ok, [_, {remote, PartialTxns}]} = dict:find(TxId, TxnData),
 
+  io:format("~n ++++ before deliver ++++ PartialTxns: ~w~n", PartialTxns),
+
+  io:format("~n ++++ before deliver ++++ ~n"),
   ok = lists:foreach(fun(InterDcTxn) ->
                        ok = rpc:call(EventNode, inter_dc_sub_vnode, deliver_txn, [InterDcTxn])
                      end, PartialTxns),
+  io:format("~n ++++ after deliver ++++ ~n"),
   PT = hd(PartialTxns),
   NewTimestamp = PT#interdc_txn.timestamp,
   OriginalDCId = PT#interdc_txn.dcid,
+  io:format("~n ++++ txn Timestamp: ~w ++++ ~n", [NewTimestamp]),
 
   %%% Update clock on all partitions in the target DC
   Nodes = rpc:call(EventNode, dc_utilities, get_my_dc_nodes, []),
@@ -253,6 +207,7 @@ replay(remote, Event, State) ->
                                     NewTimestamp])
                                 end, Partitions)
                 end, Nodes),
+  io:format("~n ++++ after clock updated ++++ ~n"),
   %% TODO: sleep?????
   timer:sleep(1000),
   State.

@@ -179,7 +179,7 @@ main(Args) ->
     %% ==================== Commander Instrumentation ====================
     %% Start Commander
     %% ===================================================================
-    {ok, _Pid} = commander:start_link(comm_random_scheduler), %% comm_random_scheduler; comm_delay_scheduler
+    {ok, _Pid} = commander:start_link(comm_delay_scheduler), %% comm_random_scheduler; comm_delay_scheduler
     lager:info("Cammander started on: ~p", [node()]),
     true = lists:member(commander, erlang:registered()),
     %% ==================== End of Instrumentation Region ====================
@@ -192,7 +192,7 @@ main(Args) ->
     %% Start replayer
     %% ===================================================================
     %%% TODO: Allow programer to specify delay bound
-    commander:check(1, 10), %% (DelayBound, Bound)
+    commander:check(1, 25), %% (DelayBound, Bound)
 
     %% ==================== Commander Instrumentation ====================
     %% Stop Commander

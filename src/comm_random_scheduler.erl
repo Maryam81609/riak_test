@@ -75,8 +75,8 @@ handle_call(has_next_schedule, _From, State) ->
   {reply, Result, State};
 
 handle_call(setup_next_schedule, _From, State)->
-  OrigSchSym = commander:get_scheduling_data(),
-  EventCount = length(OrigSchSym),
+  OrigSchSym = State#rand_schlr_state.orig_sch_sym, %%commander:get_scheduling_data(),
+  %EventCount = length(OrigSchSym),
   DCs = State#rand_schlr_state.dcs,
 
   %%% Set stable snapshot in all DCs to 0
@@ -88,8 +88,8 @@ handle_call(setup_next_schedule, _From, State)->
                           end, dict:new(), DCs),
   SchCnt = State#rand_schlr_state.schedule_count,
   InitState = State#rand_schlr_state{
-    event_count_total = EventCount,
-    orig_sch_sym = OrigSchSym,
+    %event_count_total = EventCount,
+    %orig_sch_sym = OrigSchSym,
     curr_sch = [],
     logical_ss = LogicalSS,
     schedule_count = SchCnt+1,

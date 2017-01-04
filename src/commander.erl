@@ -184,7 +184,8 @@ handle_call({get_upstream_event_data, {Data}}, _From, State) ->
 
 handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
     NewState = case dict:find(TxId, State#comm_state.txns_data) of
-                    {ok, TxData} ->[LocalData, {remote, PartTxns}] = TxData,
+                    {ok, TxData} ->
+                        [LocalData, {remote, PartTxns}] = TxData,
                         NewPartTxns = PartTxns ++ [InterDcTxn],
                         NewTxData = [LocalData, {remote, NewPartTxns}],
                         NewTxnsData2 = dict:store(TxId, NewTxData, State#comm_state.txns_data),
@@ -212,6 +213,7 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   {noreply, NewState};
 
 handle_cast(test_initialized, State) ->
+  io:format("~n+++ commander +++ test initialized +++~n"),
   NewState = State#comm_state{phase = replay},
   comm_replayer:replay_next_async(),
   {noreply, NewState};
@@ -238,11 +240,14 @@ handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) 
   {noreply, State};
 
 handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
+  io:format("~n&&&&& commander &&&& acknowledged! ~n"),
   Scheduler = State#comm_state.scheduler,
   %%% Check application invariant
   CurrSch = Scheduler:curr_schedule(),
+  io:format("~n&&&&& commander &&&& CurrSch len:~w ~n", [length(CurrSch)]),
   LatestEvent = lists:last(CurrSch),
   TestRes = comm_verifier:check_object_invariant(LatestEvent),
+  io:format("~n&&&&& commander &&&& TestRes:~w ~n", [TestRes]),
   %%% If test result is true continue exploring more schedules; otherwise provide a counter example
   case TestRes of
     true ->
