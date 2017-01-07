@@ -101,7 +101,7 @@ get_all_partitions(ReplayerState) ->
               end, HeadNodes).
 
 write_to_file(FileName, Data, _Mode) ->
-    RootDir = get_home_dir() ++ "/commander/schedules/delay",
+    RootDir = get_home_dir() ++ "/commander/schedules/delay/",
     FullName = RootDir ++ FileName,
     case filelib:is_regular(FullName) of
         true ->
