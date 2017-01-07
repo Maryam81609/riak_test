@@ -1,13 +1,4 @@
-%%%-------------------------------------------------------------------
-%%% @author maryam
-%%% @copyright (C) 2016, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 28. May 2016 8:34 AM
-%%%-------------------------------------------------------------------
 -module(comm_replayer).
--author("maryam").
 
 -include("commander.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -32,13 +23,6 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Starts the server
-%%
-%% @end
-%%--------------------------------------------------------------------
 -spec(start_link(Scheduler::atom(), DelayBound::non_neg_integer(), Bound::non_neg_integer(), TxnsData::dict(), Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 
@@ -97,14 +81,13 @@ handle_call({update_txns_data, {_EventData, InterDCTxn, TxId}}, _From, State) ->
   {stop, Reason :: term(), NewState :: #replay_state{}}).
 handle_cast(replay_next_async, State) ->
   Scheduler = State#replay_state.scheduler,
-  io:format("~n+++ replayer +++ replay next +++ end of curr: ~w +++~n", [Scheduler:is_end_current_schedule()]),
-  NewState = case Scheduler:is_end_current_schedule() of
+  IsEndSch = Scheduler:is_end_current_schedule(),
+
+  NewState = case IsEndSch of
                 false ->
                   NextEvent = get_next_runnable_event(Scheduler),
-                  io:format("~n+++replayer++NextEvent: ~w +++~n", [NextEvent]),
                   replay(NextEvent, State);
                 true ->
-                  io:format("~n+++ replayer +++ curr_schedule: ~w", [Scheduler:curr_schedule()]),
                   ok = commander:test_passed(),
                   commander:run_next_test1(),
                   State
@@ -117,7 +100,6 @@ handle_cast(setup_next_test1, State) ->
     true ->
       comm_utilities:reset_dcs(State#replay_state.clusters),
       ok = Scheduler:setup_next_schedule(),
-      io:format("~n+++ replayer +++ after setup +++~n"),
       commander:test_initialized();
     false ->
       commander:display_result(),
@@ -148,7 +130,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 get_next_runnable_event(Scheduler) ->
   NextEvent = Scheduler:next_event(),
-  io:format("~n+++replayer++get_next_runnable_event++NextEvent: ~w +++~n", [NextEvent]),
   case NextEvent of
     none -> get_next_runnable_event(Scheduler);
     _ -> NextEvent
@@ -186,17 +167,13 @@ replay(remote, Event, State) ->
   {ok, TxId} = dict:find(PreTxId, TxnMap),
   {ok, [_, {remote, PartialTxns}]} = dict:find(TxId, TxnData),
 
-  io:format("~n ++++ before deliver ++++ PartialTxns: ~w~n", PartialTxns),
-
-  io:format("~n ++++ before deliver ++++ ~n"),
   ok = lists:foreach(fun(InterDcTxn) ->
                        ok = rpc:call(EventNode, inter_dc_sub_vnode, deliver_txn, [InterDcTxn])
                      end, PartialTxns),
-  io:format("~n ++++ after deliver ++++ ~n"),
+
   PT = hd(PartialTxns),
   NewTimestamp = PT#interdc_txn.timestamp,
   OriginalDCId = PT#interdc_txn.dcid,
-  io:format("~n ++++ txn Timestamp: ~w ++++ ~n", [NewTimestamp]),
 
   %%% Update clock on all partitions in the target DC
   Nodes = rpc:call(EventNode, dc_utilities, get_my_dc_nodes, []),
@@ -207,7 +184,5 @@ replay(remote, Event, State) ->
                                     NewTimestamp])
                                 end, Partitions)
                 end, Nodes),
-  io:format("~n ++++ after clock updated ++++ ~n"),
-  %% TODO: sleep?????
-  timer:sleep(1000),
+  io:format("~n Replayed a remote event. ~n"),
   State.

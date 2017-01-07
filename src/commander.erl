@@ -213,7 +213,6 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   {noreply, NewState};
 
 handle_cast(test_initialized, State) ->
-  io:format("~n+++ commander +++ test initialized +++~n"),
   NewState = State#comm_state{phase = replay},
   comm_replayer:replay_next_async(),
   {noreply, NewState};
@@ -240,14 +239,14 @@ handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) 
   {noreply, State};
 
 handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
-  io:format("~n&&&&& commander &&&& acknowledged! ~n"),
+
   Scheduler = State#comm_state.scheduler,
   %%% Check application invariant
   CurrSch = Scheduler:curr_schedule(),
-  io:format("~n&&&&& commander &&&& CurrSch len:~w ~n", [length(CurrSch)]),
   LatestEvent = lists:last(CurrSch),
+  timer:sleep(1000),
   TestRes = comm_verifier:check_object_invariant(LatestEvent),
-  io:format("~n&&&&& commander &&&& TestRes:~w ~n", [TestRes]),
+
   %%% If test result is true continue exploring more schedules; otherwise provide a counter example
   case TestRes of
     true ->
@@ -282,7 +281,7 @@ display_counter_example(Scheduler, Exception, Reason) ->
   if
     Scheduler == comm_delay_scheduler ->
       io:format("Delay sequence: "),
-      comm_delay_sequence:print_sequence();
+      Scheduler:print_delay_sequence();
     true ->
       noop
   end,

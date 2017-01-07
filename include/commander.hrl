@@ -86,28 +86,12 @@
   latest_txids :: [txid()]
 }).
 
-%%-record(delay_schlr_state, {
-%%  delayed_count :: non_neg_integer(),
-%%  delay_bound :: non_neg_integer(),
-%%  event_count :: pos_integer(),
-%%  curr_delay_seq :: delay_seq(),
-%%  curr_sch :: list(term()),
-%%  dependency :: dict(),
-%%  delayed :: list(term()),
-%%  orig_sch :: list(event()),
-%%  orig_sch_sym :: list(term()),
-%%  curr_event_index :: non_neg_integer(),
-%%  logical_ss :: dict(),
-%%  dcs :: list(),
-%%  schedule_count::non_neg_integer()
-%%}).
 -record(delay_schlr_state, {
   event_count_total :: pos_integer(),
   curr_sch :: list(term()),
   dependency :: dict(),
   orig_sch_sym_main :: list(term()), %% constant
   orig_sch_sym :: list(term()),
-  %%remained :: list(term()),
   orig_event_index :: non_neg_integer(),
   common_prefix_event_index :: non_neg_integer(),
   delayed_event_index :: non_neg_integer(),
@@ -137,9 +121,7 @@
   curr_sch :: list(term()),
   dependency :: dict(),
   orig_sch_sym :: list(term()),
-  %%curr_event_index :: non_neg_integer(),
   remained :: list(),
-  %%processed :: list(),
   logical_ss :: dict(),
   dcs :: list(),
   schedule_count::non_neg_integer(),

@@ -99,3 +99,15 @@ get_all_partitions(ReplayerState) ->
     lists:map(fun(HeadNode) ->
                 rpc:call(HeadNode, dc_utilities, get_all_partitions, [])
               end, HeadNodes).
+
+write_to_file(FileName, Data, _Mode) ->
+    RootDir = get_home_dir() ++ "/commander/schedules/delay",
+    FullName = RootDir ++ FileName,
+    case filelib:is_regular(FullName) of
+        true ->
+            file:write_file(FullName, Data, [append]),
+            ok;
+        false ->
+            file:write_file(FullName, Data, [write]),
+            ok
+    end.

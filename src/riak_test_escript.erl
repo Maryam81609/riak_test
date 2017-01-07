@@ -192,7 +192,7 @@ main(Args) ->
     %% Start replayer
     %% ===================================================================
     %%% TODO: Allow programer to specify delay bound
-    commander:check(1, 25), %% (DelayBound, Bound)
+    commander:check(1, 100), %% (DelayBound, Bound)
 
     %% ==================== Commander Instrumentation ====================
     %% Stop Commander
