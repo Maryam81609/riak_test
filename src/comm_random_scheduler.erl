@@ -75,8 +75,7 @@ handle_call(has_next_schedule, _From, State) ->
   {reply, Result, State};
 
 handle_call(setup_next_schedule, _From, State)->
-  OrigSchSym = State#rand_schlr_state.orig_sch_sym, %%commander:get_scheduling_data(),
-  %EventCount = length(OrigSchSym),
+  OrigSchSym = State#rand_schlr_state.orig_sch_sym,
   DCs = State#rand_schlr_state.dcs,
 
   %%% Set stable snapshot in all DCs to 0
@@ -88,8 +87,6 @@ handle_call(setup_next_schedule, _From, State)->
                           end, dict:new(), DCs),
   SchCnt = State#rand_schlr_state.schedule_count,
   InitState = State#rand_schlr_state{
-    %event_count_total = EventCount,
-    %orig_sch_sym = OrigSchSym,
     curr_sch = [],
     logical_ss = LogicalSS,
     schedule_count = SchCnt+1,
@@ -104,62 +101,39 @@ handle_call(setup_next_schedule, _From, State)->
 
 handle_call(next_event, _From, State) -> %% event | none
   CurrSch = State#rand_schlr_state.curr_sch,
-  OrigSymSch = State#rand_schlr_state.orig_sch_sym,
   SS = State#rand_schlr_state.logical_ss,
   Remained = State#rand_schlr_state.remained,
 
-  %% - pick an event randomly from the remained events
-  EventIndx = random:uniform(length(Remained)),
-  Event = lists:nth(EventIndx, Remained),
+  LenCurr = length(CurrSch),
 
-  %% - check the event type
+  {Indx, Event} =
+    if
+      LenCurr >=3 -> %%% TODO: remove this after adding local transactions dependency
+        %% pick an event randomly from the remained events
+        Indx1 = random:uniform(length(Remained)),
+        {Indx1, lists:nth(Indx1, Remained)};
+      true ->
+        {1, lists:nth(1, Remained)}
+    end,
+
+  Remained1 = update_event_data(Event, Remained, SS),
+  Event1 = lists:nth(Indx, Remained1),
   EventType = comm_utilities:type(Event),
-
-  {NewState, NextEvent} =
-    case EventType of
-      local -> %% - if event is a local event, schedule it, and update its CT, and DC's SS
-        %%% Update the scheduler state
-        NewOrigSch = update_event_data(Event, OrigSymSch, SS),
-        NewCurrSch = CurrSch ++ [Event],
-        NewRemained = lists:delete(Event, Remained),
-
-        %%% Update receiver SS %%%
-        EventDC = Event#local_event.event_dc,
-        NewEventCT = Event#local_event.event_commit_time,
-        {ok, DCSS} = dict:find(EventDC, SS),
-        NewDCSS = dict:store(EventDC, NewEventCT, DCSS),
-        NewLogicalSS1 = dict:store(EventDC, NewDCSS, SS),
-
-        %%% Update the rand_schlr_state record
+  IsBlocked = is_blocked(EventType, Event1, SS, CurrSch, Remained1),
+  {NextEvent, NewState} =
+    case IsBlocked of
+      false ->
+        NewCurrSch = CurrSch ++ [Event1],
+        NewRemained = lists:delete(Event1, Remained1),
+        NewSS = update_ss(EventType, Event1, SS),
         State1 = State#rand_schlr_state{
-          orig_sch_sym = NewOrigSch,
           curr_sch = NewCurrSch,
           remained = NewRemained,
-          logical_ss = NewLogicalSS1},
-        {State1, Event};
-      remote -> %% - if the event is a remote event, check its dependency
-        %% - check if it is not blocked? (its dependency is satisfied in te target DC)
-        case is_blocked(remote, Event, SS, CurrSch, Remained) of
-          false ->
-            NewCurrSch = CurrSch ++ [Event],
-            NewRemained = lists:delete(Event, Remained),
-
-            %%% Update receiver SS %%%
-            EventDC = Event#remote_event.event_dc,
-            NewEventCT = Event#remote_event.event_commit_time,
-            {ok, DCSS} = dict:find(EventDC, SS),
-            NewDCSS = dict:store(EventDC, NewEventCT, DCSS),
-            NewLogicalSS1 = dict:store(EventDC, NewDCSS, SS),
-
-            %%% Update the rand_schlr_state record
-            State1 = State#rand_schlr_state{
-              curr_sch = NewCurrSch,
-              remained = NewRemained,
-              logical_ss = NewLogicalSS1},
-            {State1, Event};
-          true ->
-            {State, none}
-        end
+          logical_ss = NewSS},
+        {Event1, State1};
+      true ->
+        State1 = State#rand_schlr_state{remained = Remained1},
+        {none, State1}
     end,
   {reply, NextEvent, NewState};
 
@@ -191,6 +165,24 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+%%% Update scheduler SS
+update_ss(local, CurrEvent, SS) ->
+  EventDC = CurrEvent#local_event.event_dc,
+  NewEventCT = CurrEvent#local_event.event_commit_time,
+  {ok, DCSS} = dict:find(EventDC, SS),
+  NewDCSS = dict:store(EventDC, NewEventCT, DCSS),
+  dict:store(EventDC, NewDCSS, SS);
+
+update_ss(remote, Event, SS) ->
+  EventDC = Event#remote_event.event_dc,
+  {ok, DCSS} = dict:find(EventDC, SS),
+  EventCT = Event#remote_event.event_commit_time,
+  EventOrigDC = Event#remote_event.event_original_dc,
+  NewDCSS = dict:store(EventOrigDC, EventCT, DCSS),
+  dict:store(EventDC, NewDCSS, SS).
+
+is_blocked(local, _Event, _SS, _CurrSch, _Remained) ->
+  false;
 
 %%% Returns true if Event is
 %%% either the replication of an event which has not been replayed
@@ -229,32 +221,37 @@ is_blocked(remote, Event, SS, CurrSch, Remained) ->
 %%% its CT is updated using lamport logical clocks;
 %%% the update must be applied both local event and its corresponding remote event
 %%% This function is called only for local events
-update_event_data(Event, OrigSymSch, SS) ->
-  [EventTxnId] = Event#local_event.event_txns,
-  EventDC = Event#local_event.event_dc,
-  {ok, DCSS} = dict:find(EventDC, SS),
-  {ok, V1} = dict:find(EventDC, DCSS),
-  NewEventCT = V1 + 1,
-  lists:map(fun(E) ->
-    case comm_utilities:type(E) of
-      local ->
-        [ETxId] = E#local_event.event_txns,
-        if
-          EventTxnId == ETxId ->
-            E#local_event{
-              event_snapshot_time = DCSS,
-              event_commit_time = NewEventCT};
-          true ->
-            E
-        end;
-      remote ->
-        [ETxId] = E#remote_event.event_txns,
-        if
-          EventTxnId == ETxId ->
-            E#remote_event{
-              event_snapshot_time = DCSS,
-              event_commit_time = NewEventCT};
-          true ->
-            E
-        end
-    end end, OrigSymSch).
+update_event_data(Event, EventsList, SS) ->
+  case comm_utilities:type(Event) of
+    local ->
+      [EventTxnId] = Event#local_event.event_txns,
+      EventDC = Event#local_event.event_dc,
+      {ok, DCSS} = dict:find(EventDC, SS),
+      {ok, V1} = dict:find(EventDC, DCSS),
+      NewEventCT = V1 + 1,
+      lists:map(fun(E) ->
+                  case comm_utilities:type(E) of
+                    local ->
+                      [ETxId] = E#local_event.event_txns,
+                      if
+                        EventTxnId == ETxId ->
+                          E#local_event{
+                            event_snapshot_time = DCSS,
+                            event_commit_time = NewEventCT};
+                        true ->
+                          E
+                      end;
+                    remote ->
+                      [ETxId] = E#remote_event.event_txns,
+                      if
+                        EventTxnId == ETxId ->
+                          E#remote_event{
+                            event_snapshot_time = DCSS,
+                            event_commit_time = NewEventCT};
+                        true ->
+                          E
+                      end
+                  end end, EventsList);
+    remote ->
+      EventsList
+  end.
