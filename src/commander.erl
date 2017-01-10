@@ -157,6 +157,7 @@ handle_call({get_downstream_event_data, {Data}}, _From, State) ->
 handle_call({update_upstream_event_data, {Data}}, _From, State) ->
     %% TODO: Handle the case if the txn is aborted or there is an error (Data =/= {txnid, _})
     UpEvents = State#comm_state.upstream_events,
+    DepClockPrgm = State#comm_state.dep_clock_prgm, %% (none, [{st, DepClockPrgm}, {ct, unknown}]),
     {TxId, DCID, CommitTime, SnapshotTime, _Partition} = Data,
     NewState3 = case UpEvents of
         [CurrentUpstreamEvent | Tail] ->
@@ -167,8 +168,47 @@ handle_call({update_upstream_event_data, {Data}}, _From, State) ->
 
             NewTxnsData = dict:store(TxId, [{local, NewUpstreamEvent#upstream_event.event_data}, {remote, []}], NewState1#comm_state.txns_data),
 
+%%            io:format("!!!!!!!!!DepClockPrgm: ~w !!!!!!!!!!!!!~n", [dict:to_list(DepClockPrgm)]),
+%%            try dict:find(none, DepClockPrgm) of
+%%              {ok, _Val1} ->
+%%                noop
+%%              catch
+%%                Throw ->
+%%                  io:format("~n~n~n ~w ~n~n~n", [Throw]),
+%%                  {throw, caught, Throw}
+%%            end,
+
+%%            io:format("~n~n~n ~w ~n~n~n", [dict:find(none, DepClockPrgm)]),
+            {ok, Val} = dict:find(none, DepClockPrgm),
+            %% Sanity check
+            F = dict:filter(fun(K, _V) -> K == none end, DepClockPrgm),
+            1 = dict:size(F),
+            DepClockPrgm1 = dict:erase(none, DepClockPrgm),
+            %% Sanity check
+            unknown = proplists:get_value(ct, Val),
+%%            io:format("~n=-=-=-=-=Passed sanity checks=-=-=-=-=~n"),
+            STPrgm = proplists:get_value(st, Val),
+%%            io:format("~n@@@@=-=-=STPrgm:~w~n=-=-=-=ST System:~w=-=-=-=-=~n", [STPrgm, SnapshotTime]),
+            NewSTPrgm =
+              case STPrgm of
+                ignore ->
+%%                  io:format("~n=-=-=-=-= CommitTime: ~w =-=-=-=-=~n", [CommitTime]),
+                  dict:new();
+%%                  VCKeys = dict:fetch_keys(CommitTime),
+%%                  lists:foreach(fun(_E) -> 0 end, VCKeys);
+                _Else ->
+%%                  io:format("~n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=~n"),
+                  STPrgm
+              end,
+%%            io:format("~n=-=-=NewSTPrgm:~w~n", [NewSTPrgm]),
+            Val1 = lists:keyreplace(st, 1, Val, {st, NewSTPrgm}),
+            VC_CT = dict:store(DCID, CommitTime, NewSTPrgm),
+            NewVal = lists:keyreplace(ct, 1, Val1, {ct, VC_CT}),
+            NewDepClockPrgm = dict:store(TxId, NewVal, DepClockPrgm1),
+%%            io:format("~n =-=-=-= NewDepClockPrgm: ~w =-=-=-=-=~n", [dict:to_list(NewDepClockPrgm)]),
+
             NewUpstreamEvents = Tail,
-            NewState1#comm_state{upstream_events = NewUpstreamEvents, txns_data = NewTxnsData};
+            NewState1#comm_state{upstream_events = NewUpstreamEvents, txns_data = NewTxnsData, dep_clock_prgm = NewDepClockPrgm};
         [] ->
             State
     end,
@@ -176,10 +216,13 @@ handle_call({update_upstream_event_data, {Data}}, _From, State) ->
 
 handle_call({get_upstream_event_data, {Data}}, _From, State) ->
     {_M, [EvNo | Tail ]} = Data,
-    [EventNode, _] = Tail,
+    [EventNode, ClockPrgm, _] = Tail,
     NewUpstreamEvent = #upstream_event{event_no = EvNo, event_node = EventNode, event_data = Data, event_txns = []},
+    DepClockPrgm = State#comm_state.dep_clock_prgm,
+    NewDepClockPrgm = dict:store(none, [{st, ClockPrgm}, {ct, unknown}], DepClockPrgm),
     NewUpstreamEvents = State#comm_state.upstream_events ++ [NewUpstreamEvent],
-    NewState = State#comm_state{upstream_events = NewUpstreamEvents},
+
+    NewState = State#comm_state{upstream_events = NewUpstreamEvents, dep_clock_prgm = NewDepClockPrgm},
     {reply, ok, NewState};
 
 handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
@@ -200,6 +243,43 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
   Scheduler = State#comm_state.scheduler,
 
+  %%% Extract transactions dependency
+  DepClockPrgm = State#comm_state.dep_clock_prgm,
+  NewDepTxnsPrgm =
+    dict:fold(fun(TxId, [{st, ST}, {ct, _CT}], AllDepTxns) ->
+                case dict:size(ST) of
+                  0 ->
+%%                    io:format("~n =-=-???=-=~n"),
+                    D1 = dict:store(TxId, [], AllDepTxns),
+%%                    io:format("~n =-=-=-=~w=-=-=-=-= ~n", [dict:to_list(AllDepTxns)]),
+                    D1;
+                  _Else ->
+%%                    io:format("~n =-=-____=-=~n"),
+                    KeysDepClock = dict:fetch_keys(DepClockPrgm),
+                    Dependencies =
+                      lists:foldl(fun(T, DepTxns) ->
+                                    {ok, [{st, _T_ST}, {ct, T_CT}]} = dict:find(T, DepClockPrgm),
+%%                                    io:format("~n##### TxId: ~w ###### T: ~w #####~n", [TxId, T]),
+                                    case (TxId /= T) and vectorclock:ge(ST, T_CT) of
+                                      true ->
+                                        DepTxns ++ [T];
+                                      false ->
+                                        DepTxns
+                                    end end, [], KeysDepClock),
+                    D2 = dict:store(TxId, Dependencies, AllDepTxns),
+%%                    io:format("~n =-=-=-=~w=-=-=-=-= ~n", [dict:to_list(AllDepTxns)]),
+                    D2
+                end
+              end, dict:new(), DepClockPrgm),
+
+%%  io:format("~n =-=-=After FOld Dict~n=-=-=-= DepClockPrgm:~w~n", [DepClockPrgm]),
+  KeysDepClock1 = dict:fetch_keys(DepClockPrgm),
+%%  io:format("~n=+=+=+=+=+=+=++===~n~n KeysDepClock1: ~w~n~n~n", [KeysDepClock1]),
+  lists:foreach(fun(T) ->
+                  {ok, Deps2} = dict:find(T, NewDepTxnsPrgm),
+                  io:format("~n ==--==--==--== For T: ~w; Txn Deps: ~w ==--==--==--==~n", [T, Deps2])
+                end, KeysDepClock1),
+
   %%% DCs list is obtainedS dynamically
   Clusters = State#comm_state.clusters,
   DCs = comm_utilities:get_all_dcs(Clusters),
@@ -208,7 +288,7 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
   comm_replayer:start_link(Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch),
-  NewState = State#comm_state{phase = init_test},
+  NewState = State#comm_state{phase = init_test, dep_txns_prgm = NewDepTxnsPrgm},
   comm_replayer:setup_next_test1(),
   {noreply, NewState};
 
@@ -246,10 +326,11 @@ handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
   LatestEvent = lists:last(CurrSch),
   timer:sleep(1000),
   TestRes = comm_verifier:check_object_invariant(LatestEvent),
-
+  io:format("~n======Tested======~n"),
   %%% If test result is true continue exploring more schedules; otherwise provide a counter example
   case TestRes of
     true ->
+      io:format("~n======Verified======~n"),
       comm_replayer:replay_next_async();
     {caught, Exception, Reason} ->
       display_counter_example(Scheduler, Exception, Reason)

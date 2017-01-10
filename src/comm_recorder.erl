@@ -12,7 +12,7 @@ init_record(ExecId, State) ->
     CurrExec = #execution{id=ExecId, trace=[]},
     if
         ExecId == 1 ->
-            NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=record, exec_counter = ExecId, upstream_events = [], txns_data = dict:new()};
+            NewState = State#comm_state{initial_exec = CurrExec, curr_exec = CurrExec, curr_delay_seq=[], replay_history=[], phase=record, exec_counter = ExecId, upstream_events = [], txns_data = dict:new(), dep_clock_prgm = dict:new(), dep_txns_prgm = dict:new()};
         true ->
             NewState = State
     end,

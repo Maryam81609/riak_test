@@ -73,6 +73,8 @@
                     exec_counter :: non_neg_integer(), %% Name the recorded files
                     %%% Used by Recorder to record the initial execution
                     upstream_events :: [upstream_event],
+                    dep_clock_prgm :: dict(), %% tx_id -> vectorclock
+                    dep_txns_prgm :: dict(), %% tx_id -> list(tx_id)
                     %%% Used by Scheduler
                     curr_delay_seq :: delay_seq()}).
 
