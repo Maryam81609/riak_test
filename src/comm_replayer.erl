@@ -6,7 +6,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/7,
+-export([start_link/8,
   setup_next_test1/0,
   replay_next_async/0,
   update_txns_data/3,
@@ -23,11 +23,11 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
--spec(start_link(Scheduler::atom(), DelayBound::non_neg_integer(), Bound::non_neg_integer(), TxnsData::dict(), Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
+-spec(start_link(Scheduler::atom(), DelayBound::non_neg_integer(), Bound::non_neg_integer(), TxnsData::dict(), DepTxnsPrgm::dict() , Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 
-start_link(Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch], []).
+start_link(Scheduler, DelayBound, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, DelayBound, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch], []).
 
 setup_next_test1() ->
   gen_server:cast(?SERVER, setup_next_test1).
@@ -43,12 +43,12 @@ update_txns_data(LocalTxnData, InterDCTxn, TxId) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #replay_state{}} | {ok, State :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch]) ->
+init([Scheduler, DelayBound, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch]) ->
   TxIds = dict:fetch_keys(TxnsData),
   TxnMap = lists:foldl(fun(T, UpdatedTxnMap) ->
                             dict:store(T, T, UpdatedTxnMap)
                           end, dict:new(), TxIds),
-  Scheduler:start_link([DelayBound, Bound, DCs, OrigSymSch]),
+  Scheduler:start_link([DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]),
   State = #replay_state{scheduler = Scheduler, txns_data = TxnsData, txn_map = TxnMap, sch_count = 0, dcs = DCs, clusters = Clusters},
   {ok, State}.
 
@@ -82,16 +82,19 @@ handle_call({update_txns_data, {_EventData, InterDCTxn, TxId}}, _From, State) ->
 handle_cast(replay_next_async, State) ->
   Scheduler = State#replay_state.scheduler,
   IsEndSch = Scheduler:is_end_current_schedule(),
-
   NewState = case IsEndSch of
                 false ->
                   NextEvent = get_next_runnable_event(Scheduler),
+
+%%                  io:format("~n+++++Replaying next async++++++Event: ~w ~n", [NextEvent]),
                   replay(NextEvent, State);
                 true ->
                   ok = commander:test_passed(),
                   commander:run_next_test1(),
                   State
               end,
+
+%%  io:format("~n+++++Replayed next async++++++~n"),
   {noreply, NewState};
 
 handle_cast(setup_next_test1, State) ->
@@ -135,7 +138,7 @@ get_next_runnable_event(Scheduler) ->
     _ -> NextEvent
   end.
 
--spec(replay(Event::remote_event(), State::#replay_state{}) -> #replay_state{}).
+-spec(replay(Event::#local_event{} | #remote_event{}, State::#replay_state{}) -> #replay_state{}).
 replay(Event, State) ->
   case comm_utilities:type(Event) of
     local ->
@@ -151,8 +154,10 @@ replay(local, Event, State) ->
   {ok, TxId} = dict:find(OrigTxId, TxnMap),
 
   {ok, [{local, LTxnData}, _]} = dict:find(TxId, TxnData),
-  {TestModule, Args} = LTxnData,
-  TestModule:handle_event(Args),
+%%  {TestModule, Args} = LTxnData,
+  {TestModule, [EvNo, Node, _ST, AppArgs]} = LTxnData,
+%%  io:format("~n+++++Just before Replaying a local++++++Args: ~w~n", [Args]),
+  TestModule:handle_event([EvNo, Node, ignore, AppArgs]),
   NewState = State#replay_state{latest_txids =[OrigTxId]},
   io:format("~n Replayed a local event. ~n"),
   NewState;

@@ -287,7 +287,7 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
-  comm_replayer:start_link(Scheduler, DelayBound, Bound, TxnsData, Clusters, DCs, OrigSymSch),
+  comm_replayer:start_link(Scheduler, DelayBound, Bound, TxnsData, NewDepTxnsPrgm, Clusters, DCs, OrigSymSch),
   NewState = State#comm_state{phase = init_test, dep_txns_prgm = NewDepTxnsPrgm},
   comm_replayer:setup_next_test1(),
   {noreply, NewState};

@@ -128,7 +128,8 @@
   dcs :: list(),
   schedule_count::non_neg_integer(),
   bound :: pos_integer(),
-  initial_seed :: term()
+  initial_seed :: term(),
+  dep_txns_prgm :: dict() %% tx_id -> list(tx_id)
 }).
 
 -record(verifier_state, {

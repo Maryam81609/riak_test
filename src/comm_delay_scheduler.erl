@@ -1,5 +1,4 @@
 -module(comm_delay_scheduler).
--author("maryam").
 
 -include("commander.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -34,7 +33,7 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link([DelayBound, Bound ,DCs, OrigSymSch]) ->
+start_link([DelayBound, Bound, _DepTxnsPrgm ,DCs, OrigSymSch]) ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [[DelayBound, Bound, DCs, OrigSymSch]], []).
 
 has_next_schedule() ->
