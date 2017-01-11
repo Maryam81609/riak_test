@@ -112,6 +112,7 @@
   common_prfx_schl :: list(term()),
   common_prfx_schl_cnt :: non_neg_integer(),
   delayer :: atom(), %% regular | delay
+  dep_txns_prgm :: dict(), %% tx_id -> list(tx_id)
 
   %%% Used in rv16 branch
   curr_event_index :: non_neg_integer(),

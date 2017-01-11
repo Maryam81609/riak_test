@@ -33,8 +33,8 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link([DelayBound, Bound, _DepTxnsPrgm ,DCs, OrigSymSch]) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [[DelayBound, Bound, DCs, OrigSymSch]], []).
+start_link([DelayBound, Bound, DepTxnsPrgm ,DCs, OrigSymSch]) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [[DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]], []).
 
 has_next_schedule() ->
   gen_server:call(?SERVER, has_next_schedule).
@@ -69,7 +69,7 @@ stop() ->
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
-init([[DelayBound, Bound, DCs, OrigSymSch]]) ->
+init([[DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]]) ->
   EventCount = length(OrigSymSch),
   InitState = #delay_schlr_state{
     event_count_total = EventCount,
@@ -85,7 +85,8 @@ init([[DelayBound, Bound, DCs, OrigSymSch]]) ->
     delay_bound = DelayBound,
     delayed = [],
     delayed_main = [],
-    delayer = regular},
+    delayer = regular,
+    dep_txns_prgm = DepTxnsPrgm},
 
   %% Start regular delay sequence generator
   comm_delay_sequence:start_link(comm_delay_sequence_r, DelayBound, length(OrigSymSch)),
@@ -397,10 +398,11 @@ get_next_and_update_state(delay, EventType,
   CurrSch = State#delay_schlr_state.curr_sch,
   SS = State#delay_schlr_state.logical_ss,
   NewDelEventIndex = State#delay_schlr_state.delayed_event_index + 1,
+  AllDepTxnsPrgm = State#delay_schlr_state.dep_txns_prgm,
   NextDelDelIndex = comm_delay_sequence:get_next_delay_index(comm_delay_sequence_d),
 
   {NewState1, NewCurrEvent} =
-    case is_runnable(EventType, CurrEvent, Delayed2, SS, NewDelEventIndex, NextDelDelIndex) of
+    case is_runnable(EventType, CurrEvent, CurrSch, Delayed2, SS, NewDelEventIndex, NextDelDelIndex, AllDepTxnsPrgm) of
       true ->
         NewCurrSch = CurrSch ++ [CurrEvent],
         NewLogicalSS1 = update_ss(EventType, CurrEvent, SS),
@@ -443,6 +445,7 @@ get_next_and_update_state(regular, EventType,
   CommPrfSch = State#delay_schlr_state.common_prfx_schl,
   NewCurrEventIndex = State#delay_schlr_state.orig_event_index + 1,
   EventCountTot = State#delay_schlr_state.event_count_total,
+  AllDepTxnsPrgm = State#delay_schlr_state.dep_txns_prgm,
   NextDelIndex = comm_delay_sequence:get_next_delay_index(comm_delay_sequence_r),
   if
     length(NewOrigSch) > EventCountTot ->
@@ -452,7 +455,7 @@ get_next_and_update_state(regular, EventType,
   end,
 
   {NewState1, NewCurrEvent} =
-    case is_runnable(EventType, CurrEvent, Delayed, SS, NewCurrEventIndex, NextDelIndex) of
+    case is_runnable(EventType, CurrEvent, CurrSch, Delayed, SS, NewCurrEventIndex, NextDelIndex, AllDepTxnsPrgm) of
       true ->
         NewCurrSch = CurrSch ++ [CurrEvent],
         NewLogicalSS1 = update_ss(EventType, CurrEvent, SS),
@@ -515,11 +518,33 @@ update_ss(remote, CurrEvent, SS) ->
   NewDCSS = dict:store(EventOrigDC, NewEventCT, DCSS),
   dict:store(EventDC, NewDCSS, SS).
 
-is_runnable(local, _CurrEvent, _Delayed, _SS, CurrEventIndex, DelIndex) ->
+is_runnable(local, CurrEvent, CurrSch, _Delayed, _SS, CurrEventIndex, DelIndex, AllDepTxnsPrgm) ->
   IsDelaying = (CurrEventIndex == DelIndex),
-  not IsDelaying;
 
-is_runnable(remote, CurrEvent, Delayed, SS, CurrEventIndex, DelIndex) ->
+  EventDC = CurrEvent#local_event.event_dc,
+  [EventTxnId] = CurrEvent#local_event.event_txns,
+
+  {ok, EventDepTxns} = dict:find(EventTxnId, AllDepTxnsPrgm),
+%%  io:format("~n==========EventDepTxns: ~w~n===========", [EventDepTxns]),
+
+  DepSatisfied =
+    lists:all(fun(DepT) ->
+                lists:any(fun(E) ->
+                            Type = type(E),
+                            {[ETxId], EDC} =
+                              case Type of
+                                local ->
+                                  {E#local_event.event_txns, E#local_event.event_dc};
+                                remote ->
+                                  {E#remote_event.event_txns, E#remote_event.event_dc}
+                              end,
+                            ETxId == DepT andalso EDC == EventDC
+                          end, CurrSch)
+              end, EventDepTxns),
+%%  io:format("~n==========local event is runnable: ~w ~n============", [not IsDelaying and DepSatisfied]),
+  not IsDelaying and DepSatisfied;
+
+is_runnable(remote, CurrEvent, _CurrSch, Delayed, SS, CurrEventIndex, DelIndex, _AllDepTxnsPrgm) ->
 
   IsDelaying = (CurrEventIndex == DelIndex),
 

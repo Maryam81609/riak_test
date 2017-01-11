@@ -136,10 +136,13 @@ get_det_sym_sch(OrigSch) ->
     SortedRemotes =
         lists:sort(fun(E1, E2) ->
                         E1DC = E1#remote_event.event_dc,
+                        E1OrigDC = E1#remote_event.event_original_dc,
                         [E1Tx] = E1#remote_event.event_txns,
                         E2DC = E2#remote_event.event_dc,
+                        E2OrigDC = E2#remote_event.event_original_dc,
                         [E2Tx] = E2#remote_event.event_txns,
-                        E1DC =< E2DC andalso E1Tx =< E2Tx
+                        E1DC =< E2DC andalso E1OrigDC =< E2OrigDC andalso E1Tx =< E2Tx
                    end, Remotes),
 
+%%    io:format("~n***************************************************~nDetOrigSch: ~w~n***************************************************~n", [SortedLocals ++ SortedRemotes]),
     SortedLocals ++ SortedRemotes.
