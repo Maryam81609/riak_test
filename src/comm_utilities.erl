@@ -111,3 +111,35 @@ write_to_file(FileName, Data, _Mode) ->
             file:write_file(FullName, Data, [write]),
             ok
     end.
+
+get_det_sym_sch(OrigSch) ->
+    SymbSch = get_symbolic_sch(OrigSch),
+    {Locals, Remotes} =
+        lists:foldl(fun(E, {L, R}) ->
+                        case type(E) of
+                            local ->
+                                {L ++ [E], R};
+                            remote ->
+                                {L, R ++ [E]}
+                        end
+                    end, {[], []}, SymbSch),
+
+    SortedLocals =
+        lists:sort(fun(E1, E2) ->
+                        E1DC = E1#local_event.event_dc,
+                        [E1Tx] = E1#local_event.event_txns,
+                        E2DC = E2#local_event.event_dc,
+                        [E2Tx] = E2#local_event.event_txns,
+                        E1DC =< E2DC andalso E1Tx =< E2Tx
+                   end, Locals),
+
+    SortedRemotes =
+        lists:sort(fun(E1, E2) ->
+                        E1DC = E1#remote_event.event_dc,
+                        [E1Tx] = E1#remote_event.event_txns,
+                        E2DC = E2#remote_event.event_dc,
+                        [E2Tx] = E2#remote_event.event_txns,
+                        E1DC =< E2DC andalso E1Tx =< E2Tx
+                   end, Remotes),
+
+    SortedLocals ++ SortedRemotes.

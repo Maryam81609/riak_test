@@ -284,7 +284,8 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   Clusters = State#comm_state.clusters,
   DCs = comm_utilities:get_all_dcs(Clusters),
 
-  OrigSymSch = comm_utilities:get_symbolic_sch(OrigSch),
+  OrigSymSch = comm_utilities:get_det_sym_sch(OrigSch),
+%%  io:format("**********Deterministic schedule:~n ~w ~n ************", [OrigSymSch]),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
   comm_replayer:start_link(Scheduler, DelayBound, Bound, TxnsData, NewDepTxnsPrgm, Clusters, DCs, OrigSymSch),
