@@ -117,9 +117,13 @@ handle_call(has_next_schedule, _From, State) ->
   HasNextSch =
     case Delayer of
       regular ->
-        length(DelayedMain) > 1
-          orelse (SchCnt < Bound andalso comm_delay_sequence:has_next(comm_delay_sequence_r))
-          orelse SchCnt == 0;
+        case State#delay_schlr_state.delay_bound == 0 of
+          true -> State#delay_schlr_state.schedule_count < 1;
+          false ->
+            length(DelayedMain) > 1
+            orelse (SchCnt < (3 * Bound) andalso comm_delay_sequence:has_next(comm_delay_sequence_r))
+            orelse SchCnt == 0
+        end;
       delay ->
         (CommonPrfxSchlCnt < CommonPrfxBound andalso comm_delay_sequence:has_next(comm_delay_sequence_d))
           orelse (SchCnt < Bound andalso comm_delay_sequence:has_next(comm_delay_sequence_r))
