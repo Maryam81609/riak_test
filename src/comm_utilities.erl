@@ -101,15 +101,15 @@ get_all_partitions(ReplayerState) ->
               end, HeadNodes).
 
 write_to_file(FileName, Data, _Mode) ->
-    RootDir = get_home_dir() ++ "/commander/schedules/delay/",
+    RootDir = get_home_dir() ++ "/commander/",
     FullName = RootDir ++ FileName,
     case filelib:is_regular(FullName) of
         true ->
             file:write_file(FullName, Data, [append]),
             ok;
         false ->
-            file:write_file(FullName, Data, [write]),
-            ok
+          file:write_file(FullName, Data, [write]),
+          ok
     end.
 
 get_det_sym_sch(OrigSch) ->
@@ -143,6 +143,4 @@ get_det_sym_sch(OrigSch) ->
                         [E2Tx] = E2#remote_event.event_txns,
                         E1DC =< E2DC andalso E1OrigDC =< E2OrigDC andalso E1Tx =< E2Tx
                    end, Remotes),
-
-%%    io:format("~n***************************************************~nDetOrigSch: ~w~n***************************************************~n", [SortedLocals ++ SortedRemotes]),
-    SortedLocals ++ SortedRemotes.
+  SortedLocals ++ SortedRemotes.

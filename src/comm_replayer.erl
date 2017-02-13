@@ -26,8 +26,8 @@
 -spec(start_link(Scheduler::atom(), DelayBound::non_neg_integer(), Bound::non_neg_integer(), TxnsData::dict(), DepTxnsPrgm::dict() , Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 
-start_link(Scheduler, DelayBound, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, DelayBound, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch], []).
+start_link(Scheduler, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch], []).
 
 setup_next_test1() ->
   gen_server:cast(?SERVER, setup_next_test1).
@@ -43,12 +43,12 @@ update_txns_data(LocalTxnData, InterDCTxn, TxId) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #replay_state{}} | {ok, State :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Scheduler, DelayBound, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch]) ->
+init([Scheduler, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch]) ->
   TxIds = dict:fetch_keys(TxnsData),
   TxnMap = lists:foldl(fun(T, UpdatedTxnMap) ->
                             dict:store(T, T, UpdatedTxnMap)
                           end, dict:new(), TxIds),
-  Scheduler:start_link([DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]),
+  Scheduler:start_link([SchParam, Bound, DepTxnsPrgm, DCs, OrigSymSch]),
   State = #replay_state{scheduler = Scheduler, txns_data = TxnsData, txn_map = TxnMap, sch_count = 0, dcs = DCs, clusters = Clusters},
   {ok, State}.
 
@@ -85,8 +85,6 @@ handle_cast(replay_next_async, State) ->
   NewState = case IsEndSch of
                 false ->
                   NextEvent = get_next_runnable_event(Scheduler),
-
-%%                  io:format("~n+++++Replaying next async++++++Event: ~w ~n", [NextEvent]),
                   replay(NextEvent, State);
                 true ->
                   ok = commander:test_passed(),
@@ -94,7 +92,6 @@ handle_cast(replay_next_async, State) ->
                   State
               end,
 
-%%  io:format("~n+++++Replayed next async++++++~n"),
   {noreply, NewState};
 
 handle_cast(setup_next_test1, State) ->
@@ -154,9 +151,7 @@ replay(local, Event, State) ->
   {ok, TxId} = dict:find(OrigTxId, TxnMap),
 
   {ok, [{local, LTxnData}, _]} = dict:find(TxId, TxnData),
-%%  {TestModule, Args} = LTxnData,
   {TestModule, [EvNo, Node, _ST, AppArgs]} = LTxnData,
-%%  io:format("~n+++++Just before Replaying a local++++++Args: ~w~n", [Args]),
   TestModule:handle_event([EvNo, Node, ignore, AppArgs]),
   NewState = State#replay_state{latest_txids =[OrigTxId]},
   io:format("~n Replayed a local event. ~n"),

@@ -57,6 +57,8 @@ run_help(ParsedArgs) ->
     lists:member(help, ParsedArgs).
 
 main(Args) ->
+    [_, _, _, SchedulerStr, SchParamStr, _, _] = Args,
+
     case filelib:is_dir("./ebin") of
         true ->
             code:add_patha("./ebin");
@@ -179,7 +181,22 @@ main(Args) ->
     %% ==================== Commander Instrumentation ====================
     %% Start Commander
     %% ===================================================================
-    {ok, _Pid} = commander:start_link(comm_delay_scheduler), %% comm_random_scheduler; comm_delay_scheduler
+    Scheduler =list_to_atom(SchedulerStr),%%io_lib:format("~w/time", [Scheduler])
+    comm_utilities:write_to_file("schedules/result" , io_lib:format("~n===========================================================~n
+    ~n~w:~w~nParam:~p~n", [record_starting, erlang:localtime(), SchParamStr]), anything),%%++ "/time"
+
+    SchParam =
+      case Scheduler of
+        comm_random_scheduler ->
+          {ok, S, _} = erl_scan:string(SchParamStr ++ "."),
+          {ok, Seed} = erl_parse:parse_term(S),
+          Seed;
+        comm_delay_scheduler ->
+          {DelayBound, _} = string:to_integer(SchParamStr),
+          DelayBound
+      end,
+
+    {ok, _Pid} = commander:start_link(Scheduler), %% comm_random_scheduler; comm_delay_scheduler
     lager:info("Cammander started on: ~p", [node()]),
     true = lists:member(commander, erlang:registered()),
     %% ==================== End of Instrumentation Region ====================
@@ -192,14 +209,15 @@ main(Args) ->
     %% Start replayer
     %% ===================================================================
     %%% TODO: Allow programer to specify delay bound
-    commander:check(1, 100), %% (DelayBound, Bound)
+    commander:check(SchParam, 150), %(DelayBound, Seed, 150), %% (DelayBound, Seed, Bound)
 
     %% ==================== Commander Instrumentation ====================
     %% Stop Commander
     %% ===================================================================
     receive
       stop ->
-        lager:info("~p schedules replyed successfully.", [commander:passed_test_count()]),
+        lager:info("~p schedules replyed.", [commander:passed_test_count()]),
+        ok = comm_utilities:write_to_file("schedules/result", io_lib:format("~n~w:~w~n", [ending, erlang:localtime()]), anything),
         commander:stop(),
         lager:info("Commander stoped on: ~p", [node()])
     end,

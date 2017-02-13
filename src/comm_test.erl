@@ -7,6 +7,7 @@
 -spec(event(Module :: atom(), Args :: list(term())) -> term()).
 event(Module, Args) ->
     Data = {Module, Args},
+    timer:sleep(100),
     ok = commander:get_upstream_event_data(Data),
     Res = Module:handle_event(Args),
     Res.

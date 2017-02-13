@@ -15,6 +15,7 @@
   schedule_count/0,
   curr_schedule/0,
   print_delay_sequence/0,
+  get_delay_sequence/0,
   curr_state/0,
 
   stop/0
@@ -62,6 +63,9 @@ print_curr_event() ->
 
 print_delay_sequence() ->
   gen_server:call(?SERVER, print_delay_sequence).
+
+get_delay_sequence() ->
+  gen_server:call(?SERVER, get_delay_sequence).
 
 stop() ->
   gen_server:cast(?SERVER, stop).
@@ -136,7 +140,7 @@ handle_call(setup_next_schedule, _From, State) ->
   SchCnt = State#delay_schlr_state.schedule_count,
   CommonPrfxSchlCnt = State#delay_schlr_state.common_prfx_schl_cnt,
 
-  ok = comm_utilities:write_to_file(io_lib:format("~w", [SchCnt-CommonPrfxSchlCnt]), io_lib:format("~n~w~n", [CurrSch]), anything),
+  ok = comm_utilities:write_to_file(io_lib:format("/delay/~w", [SchCnt-CommonPrfxSchlCnt]), io_lib:format("~n~w~n", [CurrSch]), anything),
 
   DCs = State#delay_schlr_state.dcs,
 %%  SchCnt = State#delay_schlr_state.schedule_count,
@@ -190,7 +194,7 @@ handle_call(setup_next_schedule, _From, State) ->
           common_prfx_schl_cnt = 0,
           delayed_main = [],
           delayed = [],
-          delayer = regular}; %% %%delayed_count = 0, %%
+          delayer = regular};
       delay ->
         CurrDelayedDelSeq = comm_delay_sequence:next(comm_delay_sequence_d),
         DelayedMain = State#delay_schlr_state.delayed_main,
@@ -213,7 +217,6 @@ handle_call(setup_next_schedule, _From, State) ->
 
 handle_call(next_event, _From, State) ->
   Delayer = State#delay_schlr_state.delayer,
-
   {NewState, NewCurrEvent} = next_event(Delayer, State),
   {reply, NewCurrEvent, NewState};
 
@@ -259,7 +262,18 @@ handle_call(print_curr_event, _From, State) ->
       {ok, DCSS2} = dict:find(CurrEvent#remote_event.event_dc, LSS),
       io:format("~nCurrent DC ss: ~p~n", [dict:to_list(DCSS2)])
   end,
-  {reply, ok, State}.
+  {reply, ok, State};
+
+handle_call(get_delay_sequence, _From, State) ->
+  Delayer = State#delay_schlr_state.delayer,
+  Reply =
+    case Delayer of
+      regular ->
+        io_lib:format("regular, ~w~n", [State#delay_schlr_state.curr_delay_seq]);
+      delay ->
+        io_lib:format("regular, ~w; delay, ~w~n", [State#delay_schlr_state.curr_delay_seq, State#delay_schlr_state.curr_delayed_delay_seq])
+    end,
+  {reply, Reply, State}.
 
 handle_cast(stop, State) ->
   {stop, normal, State}.
@@ -380,7 +394,7 @@ next_event(delay, State) ->
 
 next_event(regular, State) ->
   OrigSymSch = State#delay_schlr_state.orig_sch_sym,
-  Delayed = State#delay_schlr_state.delayed, %%_main,
+  Delayed = State#delay_schlr_state.delayed,
   SS = State#delay_schlr_state.logical_ss,
   NewCurrEventIndex = State#delay_schlr_state.orig_event_index + 1,
 
@@ -405,8 +419,9 @@ get_next_and_update_state(delay, EventType,
   AllDepTxnsPrgm = State#delay_schlr_state.dep_txns_prgm,
   NextDelDelIndex = comm_delay_sequence:get_next_delay_index(comm_delay_sequence_d),
 
+  IsRunnable = is_runnable(EventType, CurrEvent, CurrSch, Delayed2, SS, NewDelEventIndex, NextDelDelIndex, AllDepTxnsPrgm),
   {NewState1, NewCurrEvent} =
-    case is_runnable(EventType, CurrEvent, CurrSch, Delayed2, SS, NewDelEventIndex, NextDelDelIndex, AllDepTxnsPrgm) of
+    case IsRunnable of
       true ->
         NewCurrSch = CurrSch ++ [CurrEvent],
         NewLogicalSS1 = update_ss(EventType, CurrEvent, SS),
@@ -458,8 +473,9 @@ get_next_and_update_state(regular, EventType,
     true -> noop
   end,
 
+  IsRunnable = is_runnable(EventType, CurrEvent, CurrSch, Delayed, SS, NewCurrEventIndex, NextDelIndex, AllDepTxnsPrgm),
   {NewState1, NewCurrEvent} =
-    case is_runnable(EventType, CurrEvent, CurrSch, Delayed, SS, NewCurrEventIndex, NextDelIndex, AllDepTxnsPrgm) of
+    case IsRunnable of
       true ->
         NewCurrSch = CurrSch ++ [CurrEvent],
         NewLogicalSS1 = update_ss(EventType, CurrEvent, SS),
@@ -487,11 +503,9 @@ get_next_and_update_state(regular, EventType,
           true ->
             noop
         end,
-
         State1 = State#delay_schlr_state{
           orig_sch_sym = NewOrigSch,
           orig_event_index = NewCurrEventIndex,
-          delayed_main = NewDelayed,
           delayed = NewDelayed},
         {State1, none}
     end,
@@ -500,7 +514,13 @@ get_next_and_update_state(regular, EventType,
     case length(NewOrigSch) of
       NewCurrEventIndex ->
         TempDelayed = NewState1#delay_schlr_state.delayed,
-        NewState1#delay_schlr_state{orig_sch_sym = TempDelayed, delayed = [], orig_event_index = 0};
+        NewState2 = NewState1#delay_schlr_state{orig_sch_sym = TempDelayed, delayed = [], orig_event_index = 0},
+        if
+          NewCurrEventIndex == EventCountTot ->
+            NewState2#delay_schlr_state{delayed_main = TempDelayed};
+          true ->
+            NewState2
+        end;
       _ ->
         NewState1
     end,
@@ -529,7 +549,6 @@ is_runnable(local, CurrEvent, CurrSch, _Delayed, _SS, CurrEventIndex, DelIndex, 
   [EventTxnId] = CurrEvent#local_event.event_txns,
 
   {ok, EventDepTxns} = dict:find(EventTxnId, AllDepTxnsPrgm),
-%%  io:format("~n==========EventDepTxns: ~w~n===========", [EventDepTxns]),
 
   DepSatisfied =
     lists:all(fun(DepT) ->
@@ -545,7 +564,6 @@ is_runnable(local, CurrEvent, CurrSch, _Delayed, _SS, CurrEventIndex, DelIndex, 
                             ETxId == DepT andalso EDC == EventDC
                           end, CurrSch)
               end, EventDepTxns),
-%%  io:format("~n==========local event is runnable: ~w ~n============", [not IsDelaying and DepSatisfied]),
   not IsDelaying and DepSatisfied;
 
 is_runnable(remote, CurrEvent, _CurrSch, Delayed, SS, CurrEventIndex, DelIndex, _AllDepTxnsPrgm) ->

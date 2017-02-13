@@ -12,6 +12,7 @@
   is_end_current_schedule/0,
   schedule_count/0,
   curr_schedule/0,
+  get_state/0,
   stop/0]).
 
 %% gen_server callbacks
@@ -27,8 +28,11 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link([_DelayBound, Bound, DepTxnsPrgm, DCs, OrigSchSym]) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [[Bound, DepTxnsPrgm, DCs, OrigSchSym]], []).
+start_link([Seed, Bound, DepTxnsPrgm, DCs, OrigSchSym]) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [[Seed, Bound, DepTxnsPrgm, DCs, OrigSchSym]], []).
+
+get_state() ->
+  gen_server:call(?SERVER, get_state).
 
 has_next_schedule() ->
   gen_server:call(?SERVER, has_next_schedule).
@@ -54,7 +58,7 @@ stop() ->
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
-init([[Bound, DepTxnsPrgm, DCs, OrigSchSym]]) ->
+init([[Seed, Bound, DepTxnsPrgm, DCs, OrigSchSym]]) ->
   EventCount = length(OrigSchSym),
   InitState = #rand_schlr_state{
     event_count_total = EventCount,
@@ -64,10 +68,13 @@ init([[Bound, DepTxnsPrgm, DCs, OrigSchSym]]) ->
     curr_sch=[],
     remained=OrigSchSym,
     bound = Bound,
-    initial_seed = {110,220,330},
+    initial_seed = Seed,%%{1, 101, 301},%%{11, 25, 38},%%{320, 420, 520},%%{110, 220, 340},%%{110,220,280}, %% wallet : {210, 235,280},
     dep_txns_prgm = DepTxnsPrgm},
   random:seed(InitState#rand_schlr_state.initial_seed),
   {ok, InitState}.
+
+handle_call(get_state, _From, State) ->
+  {reply, State, State};
 
 handle_call(has_next_schedule, _From, State) ->
   SchCnt = State#rand_schlr_state.schedule_count,

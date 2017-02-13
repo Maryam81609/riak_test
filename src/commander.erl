@@ -24,6 +24,7 @@
         passed_test_count/0,
         get_app_objects/2,
         display_result/0,
+        write_time/2,
         %% callbacks
         init/1,
         handle_cast/2,
@@ -71,8 +72,8 @@ passed_test_count() ->
 get_app_objects(Mod, Objs) ->
   gen_server:call(?SERVER, {get_app_objects, {Mod, Objs}}).
 
-check(DelayBound, Bound) ->
-  gen_server:cast(?SERVER, {check, {DelayBound, Bound}}).
+check(SchParam, Bound) ->
+  gen_server:cast(?SERVER, {check, {SchParam, Bound}}).
 
 run_next_test1() ->
   gen_server:cast(?SERVER, run_next_test1).
@@ -168,17 +169,6 @@ handle_call({update_upstream_event_data, {Data}}, _From, State) ->
 
             NewTxnsData = dict:store(TxId, [{local, NewUpstreamEvent#upstream_event.event_data}, {remote, []}], NewState1#comm_state.txns_data),
 
-%%            io:format("!!!!!!!!!DepClockPrgm: ~w !!!!!!!!!!!!!~n", [dict:to_list(DepClockPrgm)]),
-%%            try dict:find(none, DepClockPrgm) of
-%%              {ok, _Val1} ->
-%%                noop
-%%              catch
-%%                Throw ->
-%%                  io:format("~n~n~n ~w ~n~n~n", [Throw]),
-%%                  {throw, caught, Throw}
-%%            end,
-
-%%            io:format("~n~n~n ~w ~n~n~n", [dict:find(none, DepClockPrgm)]),
             {ok, Val} = dict:find(none, DepClockPrgm),
             %% Sanity check
             F = dict:filter(fun(K, _V) -> K == none end, DepClockPrgm),
@@ -186,26 +176,19 @@ handle_call({update_upstream_event_data, {Data}}, _From, State) ->
             DepClockPrgm1 = dict:erase(none, DepClockPrgm),
             %% Sanity check
             unknown = proplists:get_value(ct, Val),
-%%            io:format("~n=-=-=-=-=Passed sanity checks=-=-=-=-=~n"),
+
             STPrgm = proplists:get_value(st, Val),
-%%            io:format("~n@@@@=-=-=STPrgm:~w~n=-=-=-=ST System:~w=-=-=-=-=~n", [STPrgm, SnapshotTime]),
             NewSTPrgm =
               case STPrgm of
                 ignore ->
-%%                  io:format("~n=-=-=-=-= CommitTime: ~w =-=-=-=-=~n", [CommitTime]),
                   dict:new();
-%%                  VCKeys = dict:fetch_keys(CommitTime),
-%%                  lists:foreach(fun(_E) -> 0 end, VCKeys);
                 _Else ->
-%%                  io:format("~n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=~n"),
                   STPrgm
               end,
-%%            io:format("~n=-=-=NewSTPrgm:~w~n", [NewSTPrgm]),
             Val1 = lists:keyreplace(st, 1, Val, {st, NewSTPrgm}),
             VC_CT = dict:store(DCID, CommitTime, NewSTPrgm),
             NewVal = lists:keyreplace(ct, 1, Val1, {ct, VC_CT}),
             NewDepClockPrgm = dict:store(TxId, NewVal, DepClockPrgm1),
-%%            io:format("~n =-=-=-= NewDepClockPrgm: ~w =-=-=-=-=~n", [dict:to_list(NewDepClockPrgm)]),
 
             NewUpstreamEvents = Tail,
             NewState1#comm_state{upstream_events = NewUpstreamEvents, txns_data = NewTxnsData, dep_clock_prgm = NewDepClockPrgm};
@@ -239,42 +222,16 @@ handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
                 end,
     {reply, ok, NewState}.
 
-handle_cast({check,{DelayBound, Bound}}, State) ->
+handle_cast({check,{SchParam, Bound}}, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
   Scheduler = State#comm_state.scheduler,
+  ok = write_time(Scheduler, starting),
 
   %%% Extract transactions dependency
-  DepClockPrgm = State#comm_state.dep_clock_prgm,
-  NewDepTxnsPrgm =
-    dict:fold(fun(TxId, [{st, ST}, {ct, _CT}], AllDepTxns) ->
-                case dict:size(ST) of
-                  0 ->
-%%                    io:format("~n =-=-???=-=~n"),
-                    D1 = dict:store(TxId, [], AllDepTxns),
-%%                    io:format("~n =-=-=-=~w=-=-=-=-= ~n", [dict:to_list(AllDepTxns)]),
-                    D1;
-                  _Else ->
-%%                    io:format("~n =-=-____=-=~n"),
-                    KeysDepClock = dict:fetch_keys(DepClockPrgm),
-                    Dependencies =
-                      lists:foldl(fun(T, DepTxns) ->
-                                    {ok, [{st, _T_ST}, {ct, T_CT}]} = dict:find(T, DepClockPrgm),
-%%                                    io:format("~n##### TxId: ~w ###### T: ~w #####~n", [TxId, T]),
-                                    case (TxId /= T) and vectorclock:ge(ST, T_CT) of
-                                      true ->
-                                        DepTxns ++ [T];
-                                      false ->
-                                        DepTxns
-                                    end end, [], KeysDepClock),
-                    D2 = dict:store(TxId, Dependencies, AllDepTxns),
-%%                    io:format("~n =-=-=-=~w=-=-=-=-= ~n", [dict:to_list(AllDepTxns)]),
-                    D2
-                end
-              end, dict:new(), DepClockPrgm),
+  NewDepTxnsPrgm = extract_txns_dependency(State#comm_state.dep_clock_prgm),
 
-%%  io:format("~n =-=-=After FOld Dict~n=-=-=-= DepClockPrgm:~w~n", [DepClockPrgm]),
-  KeysDepClock1 = dict:fetch_keys(DepClockPrgm),
-%%  io:format("~n=+=+=+=+=+=+=++===~n~n KeysDepClock1: ~w~n~n~n", [KeysDepClock1]),
+  KeysDepClock1 = dict:fetch_keys(State#comm_state.dep_clock_prgm),
+
   lists:foreach(fun(T) ->
                   {ok, Deps2} = dict:find(T, NewDepTxnsPrgm),
                   io:format("~n ==--==--==--== For T: ~w; Txn Deps: ~w ==--==--==--==~n", [T, Deps2])
@@ -285,10 +242,9 @@ handle_cast({check,{DelayBound, Bound}}, State) ->
   DCs = comm_utilities:get_all_dcs(Clusters),
 
   OrigSymSch = comm_utilities:get_det_sym_sch(OrigSch),
-%%  io:format("**********Deterministic schedule:~n ~w ~n ************", [OrigSymSch]),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
-  comm_replayer:start_link(Scheduler, DelayBound, Bound, TxnsData, NewDepTxnsPrgm, Clusters, DCs, OrigSymSch),
+  comm_replayer:start_link(Scheduler, SchParam, Bound, TxnsData, NewDepTxnsPrgm, Clusters, DCs, OrigSymSch),
   NewState = State#comm_state{phase = init_test, dep_txns_prgm = NewDepTxnsPrgm},
   comm_replayer:setup_next_test1(),
   {noreply, NewState};
@@ -320,18 +276,15 @@ handle_cast({update_replay_txns_data, {LocalTxnData, InterDCTxn, TxId}}, State) 
   {noreply, State};
 
 handle_cast({acknowledge_delivery, {_TxId, _Timestamp}}, State) ->
-
   Scheduler = State#comm_state.scheduler,
   %%% Check application invariant
   CurrSch = Scheduler:curr_schedule(),
   LatestEvent = lists:last(CurrSch),
   timer:sleep(1000),
   TestRes = comm_verifier:check_object_invariant(LatestEvent),
-  io:format("~n======Tested======~n"),
   %%% If test result is true continue exploring more schedules; otherwise provide a counter example
   case TestRes of
     true ->
-      io:format("~n======Verified======~n"),
       comm_replayer:replay_next_async();
     {caught, Exception, Reason} ->
       display_counter_example(Scheduler, Exception, Reason)
@@ -354,19 +307,84 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%====================================
 display_check_result(Scheduler) ->
+  ok = comm_utilities:write_to_file("schedules/result", "~n~n===========================Verification Result===========================~n~n", anything),
+  ok = comm_utilities:write_to_file("schedules/result", io_lib:format("~nChecking completed after exploring ~p schedules.~n", [Scheduler:schedule_count()]), anything),
   io:format("~n~n===========================Verification Result===========================~n~n"),
-  io:format("Checking completed after exploring ~p schedules.~n", [Scheduler:schedule_count()]).
+  io:format("Checking completed after exploring ~p schedules.~n", [Scheduler:schedule_count()]),
+  riak_test ! stop.
 
 display_counter_example(Scheduler, Exception, Reason) ->
+  ok = comm_utilities:write_to_file("schedules/result",
+    "~n~n===========================Verification Result===========================~n~n", anything),
+  ok = comm_utilities:write_to_file("schedules/result",
+    io_lib:format("~nChecking failed after exploring ~p schedules, by exception: ~p~nWith reason: ~p~n",
+      [Scheduler:schedule_count(), Exception, Reason]), anything),
   io:format("~n~n===========================Verification Result===========================~n~n"),
   io:format("Checking failed after exploring ~p schedules, by exception: ~p~nWith reason: ~p~n", [Scheduler:schedule_count(), Exception, Reason]),
   if
     Scheduler == comm_delay_scheduler ->
+      ok = comm_utilities:write_to_file("schedules/result",
+        io_lib:format("~nDelay sequence: ~s~n", [Scheduler:get_delay_sequence()]), anything),
       io:format("Delay sequence: "),
       Scheduler:print_delay_sequence();
     true ->
       noop
   end,
+  ok = comm_utilities:write_to_file("schedules/result",
+    "~n===========================Counter Example===========================", anything),
   io:format("~n===========================Counter Example==========================="),
-  io:format("~n~p~n", [Scheduler:curr_schedule()]),
-  riak_test!stop().
+  CounterExample = Scheduler:curr_schedule(),
+  ok = comm_utilities:write_to_file("/counter_example/ce",
+    io_lib:format("~n~w~nCE length: ~p~n", [CounterExample, length(CounterExample)]), anything),
+  io:format("~nCounter example length (written to HOME/commander/schedules/result): ~p~n", [length(CounterExample)]),
+%%  write_time(Scheduler, ending).,
+  riak_test ! stop.
+
+%%% Extract transactions dependency
+extract_txns_dependency(DepClockPrgm) ->
+  print_dict_of_dict(DepClockPrgm),
+  NewDepTxnsPrgm =
+    dict:fold(fun(TxId, [{st, ST}, {ct, _CT}], AllDepTxns) ->
+                case dict:size(ST) of
+                  0 ->
+                    D1 = dict:store(TxId, [], AllDepTxns),
+                    D1;
+                  _Else ->
+                    KeysDepClock = dict:fetch_keys(DepClockPrgm),
+                    Dependencies =
+                    lists:foldl(fun(T, DepTxns) ->
+                                  {ok, [{st, _T_ST}, {ct, T_CT}]} = dict:find(T, DepClockPrgm),
+                                  case (TxId /= T) and vectorclock:ge(ST, T_CT) of
+                                    true ->
+                                      DepTxns ++ [T];
+                                    false ->
+                                      DepTxns
+                                  end
+                                end, [], KeysDepClock),
+                    D2 = dict:store(TxId, Dependencies, AllDepTxns),
+                    D2
+                end
+              end, dict:new(), DepClockPrgm),
+
+  print_dict(NewDepTxnsPrgm),
+  NewDepTxnsPrgm.
+
+print_dict(D) ->
+  Keys = dict:fetch_keys(D),
+  lists:foreach(fun(Key) ->
+                  {ok, KDeps} = dict:find(Key, D),
+                  io:format("~n~n!!!!!!! K: ~w; KDeps: ~w !!!!!!!~n~n", [Key, KDeps])
+                end, Keys).
+
+print_dict_of_dict(D) ->
+  Keys = dict:fetch_keys(D),
+  lists:foreach(fun(Key) ->
+                  {ok, KDeps} = dict:find(Key, D),
+                  [{st, ST}, {ct, CT}] = KDeps,
+                  STLst = dict:to_list(ST),
+                  CTLst = dict:to_list(CT),
+                  io:format("~n#########Txn: ~w ### ~nST: ~w~n CT: ~w #########~n", [Key, STLst, CTLst])
+                end, Keys).
+
+write_time(_Scheduler, P) -> %% P: starting | ending
+  comm_utilities:write_to_file("schedules/result", io_lib:format("~n~w:~w~n", [P, erlang:localtime()]), anything).
