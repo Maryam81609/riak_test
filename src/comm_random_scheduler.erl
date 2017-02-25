@@ -28,7 +28,7 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link([Seed, Bound, DepTxnsPrgm, DCs, OrigSchSym]) ->
+start_link([_DelayDirection, Seed, Bound, DepTxnsPrgm, DCs, OrigSchSym]) ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [[Seed, Bound, DepTxnsPrgm, DCs, OrigSchSym]], []).
 
 get_state() ->

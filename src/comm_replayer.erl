@@ -6,7 +6,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/8,
+-export([start_link/9,
   setup_next_test1/0,
   replay_next_async/0,
   update_txns_data/3,
@@ -23,11 +23,11 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
--spec(start_link(Scheduler::atom(), DelayBound::non_neg_integer(), Bound::non_neg_integer(), TxnsData::dict(), DepTxnsPrgm::dict() , Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
+-spec(start_link(Scheduler::atom(), DelayDirection::atom(), DelayBound::non_neg_integer(), Bound::non_neg_integer(), TxnsData::dict(), DepTxnsPrgm::dict() , Clusters::list(), DCs::list(), OrigSymSch::list()) -> %%[]
   {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
 
-start_link(Scheduler, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch], []).
+start_link(Scheduler, DelayDirection, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, DelayDirection, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch], []).
 
 setup_next_test1() ->
   gen_server:cast(?SERVER, setup_next_test1).
@@ -43,12 +43,12 @@ update_txns_data(LocalTxnData, InterDCTxn, TxId) ->
 -spec(init(Args :: term()) ->
   {ok, State :: #replay_state{}} | {ok, State :: #replay_state{}, timeout() | hibernate} |
   {stop, Reason :: term()} | ignore).
-init([Scheduler, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch]) ->
+init([Scheduler, DelayDirection, SchParam, Bound, TxnsData, DepTxnsPrgm, Clusters, DCs, OrigSymSch]) ->
   TxIds = dict:fetch_keys(TxnsData),
   TxnMap = lists:foldl(fun(T, UpdatedTxnMap) ->
                             dict:store(T, T, UpdatedTxnMap)
                           end, dict:new(), TxIds),
-  Scheduler:start_link([SchParam, Bound, DepTxnsPrgm, DCs, OrigSymSch]),
+  Scheduler:start_link([DelayDirection, SchParam, Bound, DepTxnsPrgm, DCs, OrigSymSch]),
   State = #replay_state{scheduler = Scheduler, txns_data = TxnsData, txn_map = TxnMap, sch_count = 0, dcs = DCs, clusters = Clusters},
   {ok, State}.
 

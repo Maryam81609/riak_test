@@ -76,7 +76,8 @@
                     dep_clock_prgm :: dict(), %% tx_id -> [{st, vectorclock}, {ct, vectorclock}]}
                     dep_txns_prgm :: dict(), %% tx_id -> list(tx_id)
                     %%% Used by Scheduler
-                    curr_delay_seq :: delay_seq()}).
+                    curr_delay_seq :: delay_seq(),
+                    delay_direction :: atom()}).
 
 -record(replay_state, {
   scheduler :: atom(),
@@ -113,6 +114,7 @@
   common_prfx_schl_cnt :: non_neg_integer(),
   delayer :: atom(), %% regular | delay
   dep_txns_prgm :: dict(), %% tx_id -> list(tx_id)
+  delay_sequencer :: atom(),
 
   %%% Used in rv16 branch
   curr_event_index :: non_neg_integer(),

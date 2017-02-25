@@ -195,8 +195,8 @@ main(Args) ->
           {DelayBound, _} = string:to_integer(SchParamStr),
           DelayBound
       end,
-
-    {ok, _Pid} = commander:start_link(Scheduler), %% comm_random_scheduler; comm_delay_scheduler
+    DelayDirection = forward,%%backward,
+    {ok, _Pid} = commander:start_link(Scheduler, DelayDirection), %% comm_random_scheduler; comm_delay_scheduler
     lager:info("Cammander started on: ~p", [node()]),
     true = lists:member(commander, erlang:registered()),
     %% ==================== End of Instrumentation Region ====================
@@ -209,7 +209,7 @@ main(Args) ->
     %% Start replayer
     %% ===================================================================
     %%% TODO: Allow programer to specify delay bound
-    commander:check(SchParam, 150), %(DelayBound, Seed, 150), %% (DelayBound, Seed, Bound)
+    commander:check(SchParam, 500), %(DelayBound, Seed, 150), %% (DelayBound, Seed, Bound)
 
     %% ==================== Commander Instrumentation ====================
     %% Stop Commander

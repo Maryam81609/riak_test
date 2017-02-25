@@ -34,8 +34,8 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link([DelayBound, Bound, DepTxnsPrgm ,DCs, OrigSymSch]) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [[DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]], []).
+start_link([DelayDirection, DelayBound, Bound, DepTxnsPrgm ,DCs, OrigSymSch]) ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [[DelayDirection, DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]], []).
 
 has_next_schedule() ->
   gen_server:call(?SERVER, has_next_schedule).
@@ -73,8 +73,10 @@ stop() ->
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
-init([[DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]]) ->
+init([[DelayDirection, DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]]) ->
   EventCount = length(OrigSymSch),
+  DelaySequencer = list_to_atom(atom_to_list(comm_delay_sequence) ++ "_" ++ atom_to_list(DelayDirection)),
+  io:format("~nDelay Sequencer: ~w", [DelaySequencer]),
   InitState = #delay_schlr_state{
     event_count_total = EventCount,
     orig_sch_sym_main = OrigSymSch,
@@ -90,10 +92,11 @@ init([[DelayBound, Bound, DepTxnsPrgm, DCs, OrigSymSch]]) ->
     delayed = [],
     delayed_main = [],
     delayer = regular,
-    dep_txns_prgm = DepTxnsPrgm},
+    dep_txns_prgm = DepTxnsPrgm,
+    delay_sequencer = DelaySequencer},
 
   %% Start regular delay sequence generator
-  comm_delay_sequence:start_link(comm_delay_sequence_r, DelayBound, length(OrigSymSch)),
+  DelaySequencer:start_link(comm_delay_sequence_r, DelayBound, length(OrigSymSch)),
 
   {ok, InitState}.
 
@@ -117,6 +120,7 @@ handle_call(has_next_schedule, _From, State) ->
   CommonPrfxBound = State#delay_schlr_state.common_prfx_bound,
   DelayedMain = State#delay_schlr_state.delayed_main,
   Delayer = State#delay_schlr_state.delayer,
+  DelaySequencer = State#delay_schlr_state.delay_sequencer,
 
   HasNextSch =
     case Delayer of
@@ -125,27 +129,24 @@ handle_call(has_next_schedule, _From, State) ->
           true -> State#delay_schlr_state.schedule_count < 1;
           false ->
             length(DelayedMain) > 1
-            orelse (SchCnt < (3 * Bound) andalso comm_delay_sequence:has_next(comm_delay_sequence_r))
+            orelse (SchCnt < (3 * Bound) andalso DelaySequencer:has_next(comm_delay_sequence_r))
             orelse SchCnt == 0
         end;
       delay ->
-        (CommonPrfxSchlCnt < CommonPrfxBound andalso comm_delay_sequence:has_next(comm_delay_sequence_d))
-          orelse (SchCnt < Bound andalso comm_delay_sequence:has_next(comm_delay_sequence_r))
+        (CommonPrfxSchlCnt < CommonPrfxBound andalso DelaySequencer:has_next(comm_delay_sequence_d))
+          orelse (SchCnt < Bound andalso DelaySequencer:has_next(comm_delay_sequence_r))
     end,
   {reply, HasNextSch, State};
 
 handle_call(setup_next_schedule, _From, State) ->
-
   CurrSch = State#delay_schlr_state.curr_sch,
   SchCnt = State#delay_schlr_state.schedule_count,
   CommonPrfxSchlCnt = State#delay_schlr_state.common_prfx_schl_cnt,
+  DelaySequencer = State#delay_schlr_state.delay_sequencer,
 
   ok = comm_utilities:write_to_file(io_lib:format("/delay/~w", [SchCnt-CommonPrfxSchlCnt]), io_lib:format("~n~w~n", [CurrSch]), anything),
 
   DCs = State#delay_schlr_state.dcs,
-%%  SchCnt = State#delay_schlr_state.schedule_count,
-%%  CommonPrfxSchlCnt = State#delay_schlr_state.common_prfx_schl_cnt,
-  %%CommonPrfxBound = State#delay_schlr_state.common_prfx_bound,
   OrigSchMain = State#delay_schlr_state.orig_sch_sym_main,
   DelayedMain = State#delay_schlr_state.delayed_main,
   Delayer = State#delay_schlr_state.delayer,
@@ -166,18 +167,18 @@ handle_call(setup_next_schedule, _From, State) ->
             regular;
           true ->
             DB1 = min(DB, length(DelayedMain) - 1),
-            comm_delay_sequence:start_link(comm_delay_sequence_d, DB1, length(DelayedMain)),
+            DelaySequencer:start_link(comm_delay_sequence_d, DB1, length(DelayedMain)),
             delay
         end;
       delay ->
-        HasNextDeley = comm_delay_sequence:has_next(comm_delay_sequence_d),
+        HasNextDeley = DelaySequencer:has_next(comm_delay_sequence_d),
         if
           HasNextDeley ->
             delay;
           true ->
             %%% Sanity Check
-            true = comm_delay_sequence:has_next(comm_delay_sequence_r),
-            comm_delay_sequence:stop(comm_delay_sequence_d),
+            true = DelaySequencer:has_next(comm_delay_sequence_r),
+            DelaySequencer:stop(comm_delay_sequence_d),
             regular
         end
     end,
@@ -185,7 +186,7 @@ handle_call(setup_next_schedule, _From, State) ->
   NewState =
     case NewDelayer of
       regular ->
-        CurrDelSeq = comm_delay_sequence:next(comm_delay_sequence_r),
+        CurrDelSeq = DelaySequencer:next(comm_delay_sequence_r),
         State#delay_schlr_state{
           orig_sch_sym = OrigSchMain,
           orig_event_index = 0,
@@ -196,7 +197,7 @@ handle_call(setup_next_schedule, _From, State) ->
           delayed = [],
           delayer = regular};
       delay ->
-        CurrDelayedDelSeq = comm_delay_sequence:next(comm_delay_sequence_d),
+        CurrDelayedDelSeq = DelaySequencer:next(comm_delay_sequence_d),
         DelayedMain = State#delay_schlr_state.delayed_main,
         State#delay_schlr_state{
           curr_delayed_delay_seq = CurrDelayedDelSeq,
@@ -211,7 +212,7 @@ handle_call(setup_next_schedule, _From, State) ->
   InitState = NewState#delay_schlr_state{
     curr_sch = [],
     logical_ss = LogicalSS,
-    schedule_count = SchCnt+1}, %% common_prefix_event_index = 0,
+    schedule_count = SchCnt+1},
 
   {reply, ok, InitState};
 
@@ -290,7 +291,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-update_event_data(CurrEvent, EventsList, Delayed, SS) -> %% (CurrEvent, OrigSymSch, [], SS), for regular scheduler
+update_event_data(CurrEvent, EventsList, Delayed, SS) ->
   {NewEventsList, NewDelayed} =
     case type(CurrEvent) of
      local ->
@@ -348,9 +349,6 @@ type(Event) ->
     true ->
       none
   end.
-
-%%exists_proc(ProcName) ->
-%%  lists:member(ProcName, erlang:registered()).
 
 next_event(delay, State) ->
   CommonPrfxSch = State#delay_schlr_state.common_prfx_schl,
@@ -417,7 +415,8 @@ get_next_and_update_state(delay, EventType,
   SS = State#delay_schlr_state.logical_ss,
   NewDelEventIndex = State#delay_schlr_state.delayed_event_index + 1,
   AllDepTxnsPrgm = State#delay_schlr_state.dep_txns_prgm,
-  NextDelDelIndex = comm_delay_sequence:get_next_delay_index(comm_delay_sequence_d),
+  DelaySequencer = State#delay_schlr_state.delay_sequencer,
+  NextDelDelIndex = DelaySequencer:get_next_delay_index(comm_delay_sequence_d),
 
   IsRunnable = is_runnable(EventType, CurrEvent, CurrSch, Delayed2, SS, NewDelEventIndex, NextDelDelIndex, AllDepTxnsPrgm),
   {NewState1, NewCurrEvent} =
@@ -436,7 +435,7 @@ get_next_and_update_state(delay, EventType,
         NewDelayed2 = Delayed2 ++ [CurrEvent],
         if
           NewDelEventIndex == NextDelDelIndex -> %% If current event is a delaying event
-            comm_delay_sequence:spend_current_delay_index(comm_delay_sequence_d);
+            DelaySequencer:spend_current_delay_index(comm_delay_sequence_d);
           true ->
             noop
         end,
@@ -465,7 +464,8 @@ get_next_and_update_state(regular, EventType,
   NewCurrEventIndex = State#delay_schlr_state.orig_event_index + 1,
   EventCountTot = State#delay_schlr_state.event_count_total,
   AllDepTxnsPrgm = State#delay_schlr_state.dep_txns_prgm,
-  NextDelIndex = comm_delay_sequence:get_next_delay_index(comm_delay_sequence_r),
+  DelaySequencer = State#delay_schlr_state.delay_sequencer,
+  NextDelIndex = DelaySequencer:get_next_delay_index(comm_delay_sequence_r),
   if
     length(NewOrigSch) > EventCountTot ->
       throw(io_lib:format("~n=-=-=-=-= NextDelIndex: ~w =-=-=-=-= DelayedMain len: ~w =-=-=-=-= OrigSch: ~w =-=-=-=-=",
@@ -499,7 +499,7 @@ get_next_and_update_state(regular, EventType,
         NewDelayed = Delayed ++ [CurrEvent],
         if
           NewCurrEventIndex == NextDelIndex -> %% If current event is a delaying event
-            comm_delay_sequence:spend_current_delay_index(comm_delay_sequence_r);
+            DelaySequencer:spend_current_delay_index(comm_delay_sequence_r);
           true ->
             noop
         end,

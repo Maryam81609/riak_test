@@ -6,7 +6,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% Public API
--export([start_link/1,
+-export([start_link/2,
         stop/0,
         update_upstream_event_data/1,
         get_upstream_event_data/1,
@@ -39,8 +39,8 @@
 %%%====================================
 %%% Public API
 %%%====================================
-start_link(Scheduler) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler], []).
+start_link(Scheduler, DelayDirection) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Scheduler, DelayDirection], []).
 
 get_clusters(Clusters) ->
     gen_server:call(?SERVER, {get_clusters, Clusters}).
@@ -96,10 +96,10 @@ stop() ->
 %%%====================================
 %%% Callbacks
 %%%====================================
-init([Scheduler]) ->
+init([Scheduler, DelayDirection]) ->
     lager:info("Commander started on: ~p", [node()]),
     ExecId = 1,
-    NewState = comm_recorder:init_record(ExecId, #comm_state{scheduler = Scheduler}),
+    NewState = comm_recorder:init_record(ExecId, #comm_state{scheduler = Scheduler, delay_direction = DelayDirection}),
     {ok, NewState}.
 
 handle_call(display_result, _From, State) ->
@@ -225,6 +225,7 @@ handle_call({update_transactions_data, {TxId, InterDcTxn}}, _From, State) ->
 handle_cast({check,{SchParam, Bound}}, State) ->
   {execution, 1, OrigSch} = State#comm_state.initial_exec,
   Scheduler = State#comm_state.scheduler,
+  DelayDirection = State#comm_state.delay_direction,
   ok = write_time(Scheduler, starting),
 
   %%% Extract transactions dependency
@@ -244,7 +245,7 @@ handle_cast({check,{SchParam, Bound}}, State) ->
   OrigSymSch = comm_utilities:get_det_sym_sch(OrigSch),
   TxnsData = State#comm_state.txns_data,
   Clusters = State#comm_state.clusters,
-  comm_replayer:start_link(Scheduler, SchParam, Bound, TxnsData, NewDepTxnsPrgm, Clusters, DCs, OrigSymSch),
+  comm_replayer:start_link(Scheduler, DelayDirection, SchParam, Bound, TxnsData, NewDepTxnsPrgm, Clusters, DCs, OrigSymSch),
   NewState = State#comm_state{phase = init_test, dep_txns_prgm = NewDepTxnsPrgm},
   comm_replayer:setup_next_test1(),
   {noreply, NewState};
